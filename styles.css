@@ -76,7 +76,10 @@ ul {
 }
 
 /* --- Typography --- */
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-weight: var(--font-weight-semibold);
   line-height: 1.25;
   color: var(--color-text);
@@ -195,8 +198,21 @@ p {
 
 .navbar-brand {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
   line-height: 1.2;
+}
+
+.navbar-brand .brand-logo {
+  height: 42px;
+  width: auto;
+  object-fit: contain;
+}
+
+.navbar-brand .brand-text {
+  display: flex;
+  flex-direction: column;
 }
 
 .navbar-brand .brand-name {
@@ -238,6 +254,15 @@ p {
 .navbar-cta .btn {
   padding: 10px 22px;
   font-size: 0.85rem;
+  background-color: var(--color-accent);
+  color: var(--color-white);
+  border-color: var(--color-accent);
+}
+
+.navbar-cta .btn:hover {
+  background-color: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-white);
 }
 
 /* Hamburger */
@@ -356,8 +381,15 @@ p {
 }
 
 @keyframes bounce {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(8px); }
+
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  50% {
+    transform: translateX(-50%) translateY(8px);
+  }
 }
 
 /* --- SECTION: VISION --- */
@@ -494,7 +526,7 @@ p {
   font-size: 1.2rem;
 }
 
-.trust-card > p {
+.trust-card>p {
   margin-bottom: 24px;
 }
 
