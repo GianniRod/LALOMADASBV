@@ -51,17 +51,44 @@
 
     if (!toggle || !menu) return;
 
-    toggle.addEventListener('click', function () {
-      toggle.classList.toggle('active');
-      menu.classList.toggle('open');
+    function closeMenu() {
+      toggle.classList.remove('active');
+      menu.classList.remove('open');
+    }
+
+    function openMenu() {
+      toggle.classList.add('active');
+      menu.classList.add('open');
+    }
+
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (menu.classList.contains('open')) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
     });
 
     // Close menu when clicking a link
     menu.querySelectorAll('a').forEach(function (link) {
       link.addEventListener('click', function () {
-        toggle.classList.remove('active');
-        menu.classList.remove('open');
+        closeMenu();
       });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', function (e) {
+      if (menu.classList.contains('open') && !menu.contains(e.target) && !toggle.contains(e.target)) {
+        closeMenu();
+      }
+    });
+
+    // Close menu on scroll
+    window.addEventListener('scroll', function () {
+      if (menu.classList.contains('open')) {
+        closeMenu();
+      }
     });
   }
 
