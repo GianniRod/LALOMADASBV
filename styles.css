@@ -265,6 +265,12 @@ p {
   color: var(--color-white);
 }
 
+/* Navbar menu - base (desktop) */
+.navbar-menu {
+  display: flex;
+  align-items: center;
+}
+
 /* Hamburger */
 .navbar-toggle {
   display: none;
@@ -696,6 +702,7 @@ p {
   }
 
   .navbar-menu {
+    display: none;
     position: fixed;
     top: 64px;
     left: 0;
@@ -703,13 +710,11 @@ p {
     background-color: var(--color-white);
     border-bottom: 1px solid var(--color-border);
     padding: 24px 20px;
-    transform: translateY(-110%);
-    transition: transform 0.35s ease;
     z-index: 999;
   }
 
   .navbar-menu.open {
-    transform: translateY(0);
+    display: block;
   }
 
   .navbar-links {
