@@ -6,7 +6,7 @@
 /* --- CSS Variables --- */
 :root {
   --color-bg: #FFFFFF;
-  --color-text: #1A1A2E;
+  --color-text: #1A1A1A;
   --color-text-light: #60607A;
   --color-accent: #2D6A4F;
   --color-accent-hover: #245A42;
@@ -14,7 +14,7 @@
   --color-gold: #B08D57;
   --color-gold-light: rgba(176, 141, 87, 0.12);
   --color-section-alt: #F6F6F2;
-  --color-dark: #141420;
+  --color-dark: #1C1C1C;
   --color-border: #E4E4E4;
   --color-border-subtle: #EFEFEF;
   --color-white: #FFFFFF;
@@ -583,7 +583,7 @@ p {
 /* --- SECTION: GALLERY --- */
 .section-gallery {
   padding: var(--section-padding);
-  background-color: var(--color-dark);
+  background-color: #1C1C1C;
   overflow: hidden;
 }
 
@@ -624,7 +624,7 @@ p {
 
 .carousel-slide {
   min-width: 100%;
-  height: 540px;
+  height: 420px;
   overflow: hidden;
   flex-shrink: 0;
 }
