@@ -379,7 +379,8 @@ p {
   z-index: 1;
 }
 
-.hero-bg img {
+.hero-bg img,
+.hero-bg video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1152,6 +1153,10 @@ p {
 
   .vision-image img {
     height: 220px;
+  }
+
+  .carousel-slide {
+    height: 250px;
   }
 
   .attributes {
