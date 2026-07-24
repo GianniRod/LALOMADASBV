@@ -12,9 +12,13 @@
   const WHATSAPP_NUMBER = '5493431234567';
 
   const WHATSAPP_MESSAGES = {
-    general: 'Hola, me interesa recibir asesoramiento sobre los lotes disponibles en La Lomada de Puiggari.',
-    map: 'Hola, quisiera solicitar el mapa actualizado con los lotes aptos para escriturar en La Lomada de Puiggari.',
-    tour: 'Hola, me gustaría agendar un recorrido presencial por La Lomada de Puiggari.',
+    general: 'Hola, me interesa recibir información y asesoramiento sobre el Fideicomiso La Lomada de Puiggari.',
+    asesoramiento: 'Hola, me gustaría solicitar asesoramiento sobre el Fideicomiso La Lomada de Puiggari.',
+    conocer: 'Hola, quiero conocer más sobre el proyecto Fideicomiso La Lomada de Puiggari.',
+    reunion: 'Hola, me gustaría agendar una reunión sobre el Fideicomiso La Lomada de Puiggari.',
+    informacion: 'Hola, quisiera solicitar información detallada sobre el proyecto Fideicomiso La Lomada de Puiggari.',
+    fideicomiso: 'Hola, me gustaría consultar sobre el fideicomiso de La Lomada de Puiggari.',
+    escribano: 'Hola, quisiera hablar con un escribano interviniente sobre el Fideicomiso La Lomada de Puiggari.'
   };
 
   // ---- WHATSAPP REDIRECT ----
@@ -27,10 +31,15 @@
   // Bind CTA buttons
   function bindCTAs() {
     const bindings = {
-      ctaNavbar: 'general',
-      ctaHero: 'general',
-      ctaMap: 'map',
-      ctaTour: 'tour',
+      ctaNavbar: 'asesoramiento',
+      ctaHero1: 'conocer',
+      ctaHero2: 'informacion',
+      ctaSolicitarAsesoramiento: 'asesoramiento',
+      ctaQuieroConocer: 'conocer',
+      ctaAgendarReunion: 'reunion',
+      ctaSolicitarInformacion: 'informacion',
+      ctaConsultarFideicomiso: 'fideicomiso',
+      ctaHablarEscribano: 'escribano'
     };
 
     Object.entries(bindings).forEach(([id, messageKey]) => {
