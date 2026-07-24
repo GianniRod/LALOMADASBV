@@ -253,26 +253,10 @@ p {
   object-fit: contain;
 }
 
-.navbar-brand .brand-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.navbar-brand .brand-name {
-  font-size: 1.18rem;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-}
-
-.navbar-brand .brand-location {
-  font-size: 0.66rem;
-  color: var(--color-accent);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  font-weight: var(--font-weight-semibold);
+.navbar-brand .brand-logo-text {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
 }
 
 .navbar-menu {
@@ -1053,12 +1037,8 @@ p {
     height: 34px;
   }
 
-  .navbar-brand .brand-name {
-    font-size: 1.02rem;
-  }
-
-  .navbar-brand .brand-location {
-    font-size: 0.59rem;
+  .navbar-brand .brand-logo-text {
+    height: 18px;
   }
 
   .navbar-toggle {
