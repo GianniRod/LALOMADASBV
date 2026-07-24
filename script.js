@@ -9,7 +9,7 @@
 
   // ---- CONFIG ----
   // Reemplazar con el número real de WhatsApp (formato internacional sin +)
-  const WHATSAPP_NUMBER = '5493431234567';
+  const WHATSAPP_NUMBER = '5493435046423';
 
   const WHATSAPP_MESSAGES = {
     general: 'Hola, me interesa recibir información y asesoramiento sobre el Fideicomiso La Lomada de Puiggari.',
@@ -33,13 +33,10 @@
     const bindings = {
       ctaNavbar: 'asesoramiento',
       ctaHero1: 'conocer',
-      ctaHero2: 'informacion',
-      ctaSolicitarAsesoramiento: 'asesoramiento',
-      ctaQuieroConocer: 'conocer',
-      ctaAgendarReunion: 'reunion',
-      ctaSolicitarInformacion: 'informacion',
-      ctaConsultarFideicomiso: 'fideicomiso',
-      ctaHablarEscribano: 'escribano'
+      ctaHero2: 'reunion',
+      ctaAsesoramiento: 'asesoramiento',
+      ctaReunion: 'reunion',
+      ctaEscribano: 'escribano'
     };
 
     Object.entries(bindings).forEach(([id, messageKey]) => {
