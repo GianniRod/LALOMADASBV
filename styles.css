@@ -1157,12 +1157,12 @@ p {
   }
 
   .carousel-slide {
-    height: 300px; /* Base height for mobile */
+    height: auto;
+    aspect-ratio: 16 / 9;
   }
   
   .carousel-slide img {
-    object-fit: contain; /* Prevents ultra-zoom crop on mobile */
-    background-color: #1C1C1C;
+    object-fit: cover;
   }
 
   .attributes {
