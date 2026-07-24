@@ -47,6 +47,7 @@
             <div class="navbar-menu" id="navbarMenu">
                 <ul class="navbar-links">
                     <li><a href="#proyecto">El Proyecto</a></li>
+                    <li><a href="#galeria">Galería</a></li>
                     <li><a href="#asesoramiento">Asesoramiento</a></li>
                     <li><a href="#fideicomiso">¿Por qué Fideicomiso?</a></li>
                     <li><a href="#compromiso">Nuestro Compromiso</a></li>
@@ -96,6 +97,58 @@
                 <div class="vision-image reveal">
                     <img src="assets/images/terreno.png" alt="Vista de los terrenos en LA LOMADA PUIGGARI">
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ========== GALERÍA ========== -->
+    <section class="section-gallery" id="galeria">
+        <div class="container">
+            <div class="gallery-header reveal">
+                <span class="section-label">Galería</span>
+                <h2>Conocé el barrio</h2>
+                <p>Imágenes del terreno, accesos e infraestructura del desarrollo.</p>
+            </div>
+        </div>
+
+        <div class="carousel" id="carousel">
+            <div class="carousel-track" id="carouselTrack">
+                <div class="carousel-slide">
+                    <img src="assets/images/galeria-01.jpg" alt="Acceso principal La Lomada Puiggari" loading="lazy">
+                </div>
+                <div class="carousel-slide">
+                    <img src="assets/images/galeria-02.jpg" alt="Calles internas con alumbrado público" loading="lazy">
+                </div>
+                <div class="carousel-slide">
+                    <img src="assets/images/galeria-03.jpg" alt="Ingreso al barrio La Lomada" loading="lazy">
+                </div>
+                <div class="carousel-slide">
+                    <img src="assets/images/galeria-04.jpg" alt="Vista panorámica de las calles" loading="lazy">
+                </div>
+                <div class="carousel-slide">
+                    <img src="assets/images/galeria-05.jpg" alt="Espacios verdes y arbolado" loading="lazy">
+                </div>
+            </div>
+
+            <!-- Flechas -->
+            <button class="carousel-btn carousel-btn-prev" id="carouselPrev" aria-label="Imagen anterior">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                </svg>
+            </button>
+            <button class="carousel-btn carousel-btn-next" id="carouselNext" aria-label="Imagen siguiente">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                </svg>
+            </button>
+
+            <!-- Puntos indicadores -->
+            <div class="carousel-dots" id="carouselDots">
+                <button class="carousel-dot active" data-index="0" aria-label="Ir a imagen 1"></button>
+                <button class="carousel-dot" data-index="1" aria-label="Ir a imagen 2"></button>
+                <button class="carousel-dot" data-index="2" aria-label="Ir a imagen 3"></button>
+                <button class="carousel-dot" data-index="3" aria-label="Ir a imagen 4"></button>
+                <button class="carousel-dot" data-index="4" aria-label="Ir a imagen 5"></button>
             </div>
         </div>
     </section>
