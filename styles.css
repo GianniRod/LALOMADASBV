@@ -1166,6 +1166,10 @@ p {
     object-fit: cover;
   }
 
+  .carousel-btn {
+    display: none;
+  }
+
   .attributes {
     grid-template-columns: 1fr;
     gap: 16px;
