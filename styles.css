@@ -515,17 +515,13 @@ p {
 
 /* Hero Badge */
 .hero-badge {
-  display: inline-block;
+  display: block;
   font-size: 0.75rem;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.13em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--color-gold);
-  background-color: rgba(176, 141, 87, 0.14);
-  border: 1px solid rgba(176, 141, 87, 0.38);
-  padding: 7px 20px;
-  border-radius: 50px;
-  margin-bottom: 28px;
+  color: rgba(255, 255, 255, 0.70);
+  margin-bottom: 20px;
 }
 
 /* Attribute Cards */
