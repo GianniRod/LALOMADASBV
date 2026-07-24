@@ -136,18 +136,18 @@
     const navbar = document.getElementById('navbar');
     if (!navbar) return;
 
-    window.addEventListener('scroll', function () {
+    function updateNavbar() {
       if (window.scrollY > 60) {
-        navbar.style.borderBottomColor = '#E0E0E0';
+        navbar.classList.add('scrolled');
+        navbar.style.borderBottomColor = '#E4E4E4';
       } else {
-        navbar.style.borderBottomColor = 'transparent';
+        navbar.classList.remove('scrolled');
+        navbar.style.borderBottomColor = 'rgba(228, 228, 228, 0.70)';
       }
-    });
-
-    // Set initial state
-    if (window.scrollY <= 60) {
-      navbar.style.borderBottomColor = 'transparent';
     }
+
+    window.addEventListener('scroll', updateNavbar, { passive: true });
+    updateNavbar();
   }
 
   // ---- INIT ----
