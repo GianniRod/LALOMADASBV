@@ -180,7 +180,7 @@
       stopAuto();
       autoTimer = setInterval(function () {
         goTo(current + 1);
-      }, 5000);
+      }, 8000);
     }
 
     function stopAuto() {
