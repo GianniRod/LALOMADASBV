@@ -1157,8 +1157,9 @@ p {
   }
 
   .carousel-slide {
-    height: auto;
-    aspect-ratio: 16 / 9;
+    height: 56.25vw; /* 16:9 aspect ratio (100vw * 9/16) - Bulletproof on iOS */
+    min-width: 100%;
+    flex-shrink: 0;
   }
   
   .carousel-slide img {
