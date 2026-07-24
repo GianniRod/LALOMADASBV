@@ -147,11 +147,100 @@
     updateNavbar();
   }
 
+  // ---- CAROUSEL ----
+  function initCarousel() {
+    const track = document.getElementById('carouselTrack');
+    const prevBtn = document.getElementById('carouselPrev');
+    const nextBtn = document.getElementById('carouselNext');
+    const dots = document.querySelectorAll('.carousel-dot');
+    const slides = document.querySelectorAll('.carousel-slide');
+
+    if (!track || !slides.length) return;
+
+    let current = 0;
+    const total = slides.length;
+    let autoTimer = null;
+
+    function goTo(index) {
+      // Wrap around
+      if (index < 0) index = total - 1;
+      if (index >= total) index = 0;
+
+      // Remove active from all
+      slides.forEach(function (s) { s.classList.remove('active'); });
+      dots.forEach(function (d) { d.classList.remove('active'); });
+
+      current = index;
+      track.style.transform = 'translateX(-' + (current * 100) + '%)';
+      slides[current].classList.add('active');
+      if (dots[current]) dots[current].classList.add('active');
+    }
+
+    function startAuto() {
+      stopAuto();
+      autoTimer = setInterval(function () {
+        goTo(current + 1);
+      }, 5000);
+    }
+
+    function stopAuto() {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    }
+
+    // Initialize
+    goTo(0);
+    startAuto();
+
+    // Arrow buttons
+    if (prevBtn) {
+      prevBtn.addEventListener('click', function () {
+        goTo(current - 1);
+        startAuto(); // reset timer on manual action
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener('click', function () {
+        goTo(current + 1);
+        startAuto();
+      });
+    }
+
+    // Dot buttons
+    dots.forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        var idx = parseInt(dot.getAttribute('data-index'), 10);
+        goTo(idx);
+        startAuto();
+      });
+    });
+
+    // Keyboard support
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') { goTo(current - 1); startAuto(); }
+      if (e.key === 'ArrowRight') { goTo(current + 1); startAuto(); }
+    });
+
+    // Touch / swipe support
+    var touchStartX = 0;
+    track.addEventListener('touchstart', function (e) {
+      touchStartX = e.touches[0].clientX;
+      stopAuto();
+    }, { passive: true });
+    track.addEventListener('touchend', function (e) {
+      var diff = touchStartX - e.changedTouches[0].clientX;
+      if (Math.abs(diff) > 50) {
+        goTo(diff > 0 ? current + 1 : current - 1);
+      }
+      startAuto();
+    }, { passive: true });
+  }
+
   // ---- INIT ----
   document.addEventListener('DOMContentLoaded', function () {
     bindCTAs();
     initMobileMenu();
     initReveal();
     initNavbarScroll();
+    initCarousel();
   });
 })();
