@@ -12,13 +12,7 @@
   const WHATSAPP_NUMBER = '5493435046423';
 
   const WHATSAPP_MESSAGES = {
-    general: 'Hola, me interesa recibir información y asesoramiento sobre el Fideicomiso La Lomada de Puiggari.',
-    asesoramiento: 'Hola, me gustaría solicitar asesoramiento sobre el Fideicomiso La Lomada de Puiggari.',
-    conocer: 'Hola, quiero conocer más sobre el proyecto Fideicomiso La Lomada de Puiggari.',
-    reunion: 'Hola, me gustaría agendar una reunión sobre el Fideicomiso La Lomada de Puiggari.',
-    informacion: 'Hola, quisiera solicitar información detallada sobre el proyecto Fideicomiso La Lomada de Puiggari.',
-    fideicomiso: 'Hola, me gustaría consultar sobre el fideicomiso de La Lomada de Puiggari.',
-    escribano: 'Hola, quisiera hablar con un escribano interviniente sobre el Fideicomiso La Lomada de Puiggari.'
+    general: 'Hola, quisiera solicitar asesoramiento sobre el Fideicomiso La Lomada Puiggari.'
   };
 
   // ---- WHATSAPP REDIRECT ----
@@ -31,12 +25,9 @@
   // Bind CTA buttons
   function bindCTAs() {
     const bindings = {
-      ctaNavbar: 'asesoramiento',
-      ctaHero1: 'conocer',
-      ctaHero2: 'reunion',
-      ctaAsesoramiento: 'asesoramiento',
-      ctaReunion: 'reunion',
-      ctaEscribano: 'escribano'
+      ctaNavbar: 'general',
+      ctaHero: 'general',
+      ctaFooter: 'general'
     };
 
     Object.entries(bindings).forEach(([id, messageKey]) => {
