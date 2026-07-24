@@ -584,13 +584,13 @@ p {
 
 /* --- SECTION: GALLERY --- */
 .section-gallery {
-  padding: var(--section-padding);
+  padding: 60px 0;
   background-color: #1C1C1C;
   overflow: hidden;
 }
 
 .gallery-header {
-  margin-bottom: 44px;
+  margin-bottom: 24px;
 }
 
 .gallery-header h2 {
