@@ -12,7 +12,7 @@
   const WHATSAPP_NUMBER = '5493435046423';
 
   const WHATSAPP_MESSAGES = {
-    general: 'Hola, quisiera solicitar asesoramiento sobre el Fideicomiso La Lomada Puiggari.'
+    general: 'Hola, quisiera solicitar asesoramiento sobre el Fideicomiso La Lomada de Puiggari.'
   };
 
   // ---- WHATSAPP REDIRECT ----
