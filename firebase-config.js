@@ -1,16 +1,15 @@
 /* ============================================
    LA LOMADA DE PUIGGARI — Configuración Firebase
-   Reemplazar con los datos de tu proyecto:
-   Consola Firebase → Configuración del proyecto → Tus apps → App web
    ============================================ */
 
 export const firebaseConfig = {
-  apiKey: 'REEMPLAZAR_API_KEY',
-  authDomain: 'REEMPLAZAR_PROJECT_ID.firebaseapp.com',
-  projectId: 'REEMPLAZAR_PROJECT_ID',
-  storageBucket: 'REEMPLAZAR_PROJECT_ID.appspot.com',
-  messagingSenderId: 'REEMPLAZAR_SENDER_ID',
-  appId: 'REEMPLAZAR_APP_ID'
+  apiKey: "AIzaSyAzHbcoM7Jqzv7KiiaeHS0WP4zRU5HJios",
+  authDomain: "lalomada-web.firebaseapp.com",
+  projectId: "lalomada-web",
+  storageBucket: "lalomada-web.firebasestorage.app",
+  messagingSenderId: "552253697912",
+  appId: "1:552253697912:web:7527f260a2a16b2aa3228d",
+  measurementId: "G-6GHJTN3ZDV"
 };
 
 // Zona horaria usada para agrupar las estadísticas por día
