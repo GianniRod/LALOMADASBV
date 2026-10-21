@@ -307,7 +307,18 @@
             </div>
         </section>
 
-        <p class="note">Cada IP se cuenta una sola vez: si la misma persona entra o toca el botón varias veces, se registra como 1. Los datos se actualizan en vivo.</p>
+        <section class="grid-2">
+            <div class="card">
+                <h2>Por provincia</h2>
+                <div class="rows" id="byProvince"><p class="empty">Sin datos todavía.</p></div>
+            </div>
+            <div class="card">
+                <h2>Por ciudad</h2>
+                <div class="rows" id="byCity"><p class="empty">Sin datos todavía.</p></div>
+            </div>
+        </section>
+
+        <p class="note">Cada IP se cuenta una sola vez: si la misma persona entra o toca el botón varias veces, se registra como 1. Los datos se actualizan en vivo. La ubicación es aproximada (según la IP) y solo existe para visitas nuevas.</p>
     </div>
 
     <div class="tip" id="tip"></div>
@@ -346,6 +357,24 @@
             if (/facebook|^fb\.(com|me)$/.test(k)) return 'Facebook' + paid;
             if (k.startsWith('meta')) return 'Facebook o Instagram' + paid;
             return k;
+        }
+
+        // Provincia (o país si es del exterior); los servicios de IP la devuelven sin tildes
+        const PROVINCES = {
+            'buenos aires f.d.': 'CABA', 'ciudad autonoma de buenos aires': 'CABA', 'autonomous city of buenos aires': 'CABA',
+            'entre rios': 'Entre Ríos', 'cordoba': 'Córdoba', 'tucuman': 'Tucumán', 'rio negro': 'Río Negro',
+            'neuquen': 'Neuquén', 'tierra del fuego': 'Tierra del Fuego'
+        };
+        const countryNames = new Intl.DisplayNames(['es'], { type: 'region' });
+        function provinceName(d) {
+            if (!d.country && !d.region) return 'Sin dato';
+            if (d.country && d.country !== 'AR') {
+                let name = d.country;
+                try { name = countryNames.of(d.country); } catch (e) {}
+                return name + ' (exterior)';
+            }
+            const r = (d.region || '').replace(/^(provincia de|province of)\s+/i, '');
+            return PROVINCES[r.toLowerCase()] || r || 'Argentina (sin provincia)';
         }
 
         function escapeHtml(s) {
@@ -412,6 +441,10 @@
             renderChart(visits, clicks);
             renderRows($('byButton'), countBy(clicks, 'button'), (k) => BUTTON_NAMES[k] || k, false);
             renderRows($('byReferrer'), countBy(visits.map((v) => ({ source: sourceName(v.referrer) })), 'source'), (k) => k, true);
+            // Las visitas anteriores a la ubicación no tienen dato: no se muestran acá
+            const located = visits.filter((v) => v.country || v.region);
+            renderRows($('byProvince'), countBy(located.map((v) => ({ p: provinceName(v) })), 'p'), (k) => k, true);
+            renderRows($('byCity'), countBy(located.filter((v) => v.city).map((v) => ({ c: `${v.city} · ${provinceName(v)}` })), 'c'), (k) => k, false);
 
             const recent = clicks.slice(0, 15);
             $('recentClicks').innerHTML = recent.length
@@ -569,7 +602,7 @@
                 const list = byIp.get(c.ip) || [];
                 let owner = null;
                 for (const a of list) { if (a.time <= c.time) owner = a; else break; }
-                if (owner) owner.clicks.push(c);
+                if (owner) { owner.clicks.push(c); c.access = owner; }
             });
         }
 
@@ -647,12 +680,24 @@
                     })
                     : [['Sin visitas en el período', 0, 0, null]]);
 
+            r = sectionTitle(ws, r + 1, 'Por provincia');
+            const byProvince = countBy(accesses.map((a) => ({ p: provinceName(a) })), 'p');
+            r = writeTable(ws, r,
+                [{ header: 'Provincia / país' }, { header: 'Accesos', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
+                byProvince.length
+                    ? byProvince.map(([k, n]) => {
+                        const conv = accesses.filter((a) => provinceName(a) === k && a.clicks.length).length;
+                        return [k, n, conv, conv / n];
+                    })
+                    : [['Sin accesos en el período', 0, 0, null]]);
+
             const notes = [
                 'Cada IP se cuenta una sola vez: un visitante o un click por IP en todo el histórico.',
                 '"Hicieron click": visitantes de ese origen que en algún momento tocaron un botón de WhatsApp.',
                 'Hoja "Accesos y clicks": cada acceso (1 por sesión del navegador) y cada click, en orden de hora.',
                 'Un acceso "entró a WhatsApp" si desde esa misma IP se tocó un botón antes del siguiente acceso.',
-                '"ID visitante": código anónimo derivado de la IP; las filas con el mismo ID son la misma IP.'
+                '"ID visitante": código anónimo derivado de la IP; las filas con el mismo ID son la misma IP.',
+                'Ubicación aproximada según la IP. Con datos móviles suele figurar Buenos Aires aunque la persona esté en otra provincia.'
             ];
             notes.forEach((t, i) => {
                 const cell = ws.getCell(r + 1 + i, 1);
@@ -689,20 +734,24 @@
                 { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
                 { header: 'Tipo', width: 18 },
                 { header: 'Origen / Botón', width: 38 },
+                { header: 'Provincia / país', width: 22 },
+                { header: 'Ciudad', width: 22 },
                 { header: '¿Entró a WhatsApp?', width: 20 },
                 { header: 'Hora de entrada a WhatsApp', numFmt: 'dd/mm/yyyy hh:mm', width: 26 },
                 { header: 'ID visitante', width: 14 }
             ], events.map((e) => {
                 const when = excelDateTime(e.ts) || excelDay(e.day);
                 if (e.kind === 'click') {
-                    return [when, 'Click a WhatsApp', buttonName(e.button), '—', null, shortId(e.ip)];
+                    // El click no guarda ubicación: se toma la del acceso al que pertenece
+                    const a = e.access || {};
+                    return [when, 'Click a WhatsApp', buttonName(e.button), provinceName(a), a.city || '—', '—', null, shortId(e.ip)];
                 }
                 const first = e.clicks[0];
                 const entered = first
                     ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '')
                     : 'No';
                 return [
-                    when, 'Acceso a la web', referrerName(e.referrer), entered,
+                    when, 'Acceso a la web', referrerName(e.referrer), provinceName(e), e.city || '—', entered,
                     first ? excelDateTime(first.ts) || excelDay(first.day) : null,
                     shortId(e.ip)
                 ];
