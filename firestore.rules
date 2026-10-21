@@ -2,6 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Ubicación aproximada (opcional): país, provincia y ciudad según la IP
+    function validGeo(data) {
+      return (!('country' in data) || (data.country is string && data.country.size() <= 2))
+        && (!('region' in data) || (data.region is string && data.region.size() <= 60))
+        && (!('city' in data) || (data.city is string && data.city.size() <= 60));
+    }
+
     // El ID del documento es el SHA-256 de la IP del visitante.
     // Solo se permite CREAR: si la IP ya existe, el intento se
     // trata como "update" y se rechaza → 1 registro por IP.
@@ -9,12 +16,13 @@ service cloud.firestore {
     match /visits/{ipHash} {
       allow read: if true;
       allow create: if ipHash.matches('^[a-f0-9]{64}$')
-        && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer'])
+        && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer', 'country', 'region', 'city'])
         && request.resource.data.ts == request.time
         && request.resource.data.day is string
         && request.resource.data.day.size() == 10
         && request.resource.data.referrer is string
-        && request.resource.data.referrer.size() <= 100;
+        && request.resource.data.referrer.size() <= 100
+        && validGeo(request.resource.data);
       allow update, delete: if false;
     }
 
@@ -35,14 +43,15 @@ service cloud.firestore {
 
     match /visitLog/{id} {
       allow read: if true;
-      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer'])
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city'])
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
         && request.resource.data.ts == request.time
         && request.resource.data.day is string
         && request.resource.data.day.size() == 10
         && request.resource.data.referrer is string
-        && request.resource.data.referrer.size() <= 100;
+        && request.resource.data.referrer.size() <= 100
+        && validGeo(request.resource.data);
       allow update, delete: if false;
     }
 
