@@ -261,7 +261,7 @@
         <section class="card export">
             <div class="export-head">
                 <h2>Descargar Excel</h2>
-                <p>Incluye resumen, detalle por día, visitas y clicks.</p>
+                <p>Incluye resumen, detalle por día y la lista de accesos y clicks con su hora.</p>
             </div>
             <div class="export-form">
                 <div class="seg" role="radiogroup" aria-label="Período">
@@ -315,7 +315,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
         import {
-            getFirestore, collection, query, orderBy, onSnapshot
+            getFirestore, collection, query, orderBy, onSnapshot, getDocs, where
         } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
         import { firebaseConfig, STATS_TIMEZONE } from './firebase-config.js';
 
@@ -464,7 +464,10 @@
             return excelJsPromise;
         }
 
-        const XL = { accent: 'FF2D6A4F', muted: 'FF60607A', border: 'FFE4E4E4', white: 'FFFFFFFF' };
+        const XL = {
+            accent: 'FF2D6A4F', muted: 'FF60607A', border: 'FFE4E4E4', white: 'FFFFFFFF',
+            accentLight: 'FFE3EEE8', goldLight: 'FFF5EEE3'
+        };
         const tzPartsFmt = new Intl.DateTimeFormat('en-CA', {
             timeZone: STATS_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
@@ -525,6 +528,40 @@
             return ws;
         }
 
+        const eventTime = (d) => d.ts ? d.ts.toMillis() : excelDay(d.day).getTime();
+        const SAME_EVENT_MS = 2 * 60 * 1000;
+
+        // Lista de accesos y clicks del período, cada uno con el hash de su IP.
+        // Sale del historial completo (visitLog / clickLog); los registros "1 por IP"
+        // se suman solo si no tienen su par en el historial (datos de antes de que existiera).
+        async function loadEvents(logName, unique, from, to) {
+            const snap = await getDocs(query(collection(db, logName), where('day', '>=', from), where('day', '<=', to)));
+            const events = snap.docs.map((d) => ({ ...d.data(), ip: d.data().ipHash }));
+            events.forEach((e) => { e.time = eventTime(e); });
+            unique.forEach((u) => {
+                const time = eventTime(u);
+                const logged = events.some((e) => e.ip === u._id && Math.abs(e.time - time) < SAME_EVENT_MS);
+                if (!logged) events.push({ ...u, ip: u._id, time });
+            });
+            return events.sort((a, b) => a.time - b.time);
+        }
+
+        // Asigna a cada acceso los clicks de la misma IP hechos entre ese acceso y el siguiente
+        function matchClicks(accesses, clicks) {
+            const byIp = new Map();
+            accesses.forEach((a) => {
+                a.clicks = [];
+                if (!byIp.has(a.ip)) byIp.set(a.ip, []);
+                byIp.get(a.ip).push(a);
+            });
+            clicks.forEach((c) => {
+                const list = byIp.get(c.ip) || [];
+                let owner = null;
+                for (const a of list) { if (a.time <= c.time) owner = a; else break; }
+                if (owner) owner.clicks.push(c);
+            });
+        }
+
         function sectionTitle(ws, row, text) {
             const cell = ws.getCell(row, 1);
             cell.value = text;
@@ -538,8 +575,13 @@
             // state viene ordenado del más nuevo al más viejo; en el Excel va cronológico
             const visits = state.visits.filter(inRange).reverse();
             const clicks = state.clicks.filter(inRange).reverse();
-            const visitById = new Map(state.visits.map((v) => [v._id, v]));
             const clickedIds = new Set(state.clicks.map((c) => c._id));
+            const [accesses, allClicks] = await Promise.all([
+                loadEvents('visitLog', visits, from, to),
+                loadEvents('clickLog', clicks, from, to)
+            ]);
+            matchClicks(accesses, allClicks);
+            const accessesWithClick = accesses.filter((a) => a.clicks.length).length;
 
             const days = daysBetween(from, to);
             const vByDay = Object.fromEntries(countBy(visits, 'day'));
@@ -565,6 +607,9 @@
                 ['Visitantes únicos', visits.length],
                 ['Clicks a WhatsApp', clicks.length],
                 ['Conversión (clicks ÷ visitantes)', withFmt(visits.length ? clicks.length / visits.length : null, '0.0%')],
+                ['Accesos totales (incluye repetidos)', accesses.length],
+                ['Clicks totales (incluye repetidos)', allClicks.length],
+                ['Accesos que entraron a WhatsApp', accessesWithClick],
                 ['Días del período', days.length],
                 ['Días con actividad', activeDays],
                 ['Promedio de visitantes por día', withFmt(visits.length / days.length, '0.0')],
@@ -594,7 +639,9 @@
             const notes = [
                 'Cada IP se cuenta una sola vez: un visitante o un click por IP en todo el histórico.',
                 '"Hicieron click": visitantes de ese origen que en algún momento tocaron un botón de WhatsApp.',
-                '"ID visitante": código anónimo derivado de la IP; permite cruzar las hojas Visitas y Clicks.'
+                'Hoja "Accesos y clicks": cada acceso (1 por sesión del navegador) y cada click, en orden de hora.',
+                'Un acceso "entró a WhatsApp" si desde esa misma IP se tocó un botón antes del siguiente acceso.',
+                '"ID visitante": código anónimo derivado de la IP; las filas con el mismo ID son la misma IP.'
             ];
             notes.forEach((t, i) => {
                 const cell = ws.getCell(r + 1 + i, 1);
@@ -622,34 +669,41 @@
             total.eachCell((cell) => { cell.border = { top: { style: 'thin', color: { argb: XL.accent } } }; });
             wsDay.autoFilter = { from: { row: 1, column: 1 }, to: { row: dayRows.length + 1, column: 5 } };
 
-            // ---- Hoja 3: Visitas ----
-            dataSheet(wb, 'Visitas', [
+            // ---- Hoja 3: Accesos y clicks (una sola lista, en orden de hora) ----
+            const events = [
+                ...accesses.map((a) => ({ ...a, kind: 'access' })),
+                ...allClicks.map((c) => ({ ...c, kind: 'click' }))
+            ].sort((a, b) => a.time - b.time);
+            const wsEvents = dataSheet(wb, 'Accesos y clicks', [
                 { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
-                { header: 'Origen', width: 30 },
-                { header: '¿Hizo click en WhatsApp?', width: 24 },
+                { header: 'Tipo', width: 18 },
+                { header: 'Origen / Botón', width: 38 },
+                { header: '¿Entró a WhatsApp?', width: 20 },
+                { header: 'Hora de entrada a WhatsApp', numFmt: 'dd/mm/yyyy hh:mm', width: 26 },
                 { header: 'ID visitante', width: 14 }
-            ], visits.map((v) => [
-                excelDateTime(v.ts) || excelDay(v.day),
-                referrerName(v.referrer),
-                clickedIds.has(v._id) ? 'Sí' : 'No',
-                shortId(v._id)
-            ]));
-
-            // ---- Hoja 4: Clicks ----
-            dataSheet(wb, 'Clicks', [
-                { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
-                { header: 'Botón', width: 38 },
-                { header: 'Origen de la visita', width: 30 },
-                { header: 'ID visitante', width: 14 }
-            ], clicks.map((c) => {
-                const v = visitById.get(c._id);
+            ], events.map((e) => {
+                const when = excelDateTime(e.ts) || excelDay(e.day);
+                if (e.kind === 'click') {
+                    return [when, 'Click a WhatsApp', buttonName(e.button), '—', null, shortId(e.ip)];
+                }
+                const first = e.clicks[0];
+                const entered = first
+                    ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '')
+                    : 'No';
                 return [
-                    excelDateTime(c.ts) || excelDay(c.day),
-                    buttonName(c.button),
-                    v ? referrerName(v.referrer) : '—',
-                    shortId(c._id)
+                    when, 'Acceso a la web', referrerName(e.referrer), entered,
+                    first ? excelDateTime(first.ts) || excelDay(first.day) : null,
+                    shortId(e.ip)
                 ];
             }));
+            // Verde: accesos que entraron a WhatsApp · Dorado: los clicks
+            events.forEach((e, i) => {
+                const fill = e.kind === 'click' ? XL.goldLight : (e.clicks.length ? XL.accentLight : null);
+                if (!fill) return;
+                wsEvents.getRow(i + 2).eachCell({ includeEmpty: true }, (cell) => {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+                });
+            });
 
             return wb;
         }
