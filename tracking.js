@@ -78,6 +78,50 @@ function getIpHash() {
   return ipHashPromise;
 }
 
+// Ubicación aproximada según la IP (país, provincia, ciudad). Va aparte del hash
+// para no cambiar el ID de los visitantes ya registrados. La IP no se guarda.
+const GEO_SERVICES = [
+  'https://get.geojs.io/v1/ip/geo.json',
+  'https://ipapi.co/json/'
+];
+const GEO_TIMEOUT_MS = 3000;
+
+let geoPromise = null;
+function getGeo() {
+  if (geoPromise) return geoPromise;
+
+  geoPromise = (async () => {
+    const session = safeStorage('sessionStorage');
+    try {
+      const cached = session && session.getItem('lalomada_geo');
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+
+    let best = null; // si un servicio no trae la ciudad, se prueba el siguiente
+    for (const url of GEO_SERVICES) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), GEO_TIMEOUT_MS);
+        const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const d = await res.json();
+        const geo = {};
+        if (d.country_code) geo.country = String(d.country_code).slice(0, 2).toUpperCase();
+        if (d.region) geo.region = String(d.region).slice(0, 60);
+        if (d.city) geo.city = String(d.city).slice(0, 60);
+        if (!geo.country && !geo.region) continue;
+        if (!best) best = geo;
+        if (geo.city) { best = geo; break; }
+      } catch (e) { /* probar el siguiente servicio */ }
+    }
+    if (best && session) session.setItem('lalomada_geo', JSON.stringify(best));
+    return best || {}; // sin ubicación igual se registra la visita
+  })();
+
+  return geoPromise;
+}
+
 async function record(collection, extra) {
   const local = safeStorage('localStorage');
   const ipHash = await getIpHash();
@@ -166,11 +210,13 @@ function detectSource() {
 }
 
 const referrer = detectSource().slice(0, 100);
-record('visits', { referrer });
+getGeo().then((geo) => {
+  record('visits', { referrer, ...geo });
 
-// Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
-const session = safeStorage('sessionStorage');
-if (!session || !session.getItem('lalomada_visitlog_ok')) {
-  if (session) session.setItem('lalomada_visitlog_ok', '1');
-  log('visitLog', { referrer });
-}
+  // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
+  const session = safeStorage('sessionStorage');
+  if (!session || !session.getItem('lalomada_visitlog_ok')) {
+    if (session) session.setItem('lalomada_visitlog_ok', '1');
+    log('visitLog', { referrer, ...geo });
+  }
+});
