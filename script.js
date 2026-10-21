@@ -36,6 +36,10 @@
       if (el) {
         el.addEventListener('click', function (e) {
           e.preventDefault();
+          // Registrar el click en las estadísticas (1 por IP)
+          if (typeof window.lalomadaTrackClick === 'function') {
+            window.lalomadaTrackClick(id);
+          }
           openWhatsApp(messageKey);
         });
       }
