@@ -138,7 +138,34 @@ if (analytics) {
     logEvent(analytics, 'page_view');
   } catch (e) {}
 }
-const referrer = (document.referrer ? new URL(document.referrer).hostname : 'directo').slice(0, 100);
+// Origen de la visita. Instagram y Facebook abren los links en su propio navegador
+// y muchas veces no mandan referrer, así que también se mira la URL (utm_source,
+// fbclid de los anuncios de Meta) y el user agent del navegador interno de cada app.
+function detectSource() {
+  let params;
+  try { params = new URLSearchParams(location.search); } catch (e) { params = new URLSearchParams(); }
+  const utmSource = (params.get('utm_source') || '').toLowerCase();
+  const utmMedium = (params.get('utm_medium') || '').toLowerCase();
+  const ua = navigator.userAgent || '';
+  let host = '';
+  try { host = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) {}
+
+  let source = null;
+  if (/^(ig|instagram)/.test(utmSource) || /Instagram/.test(ua) || /instagram\.com$/.test(host)) {
+    source = 'instagram';
+  } else if (/^(fb|facebook)/.test(utmSource) || /FBAN|FBAV|FB_IAB|FBIOS/.test(ua) || /(facebook\.com|fb\.com|fb\.me)$/.test(host)) {
+    source = 'facebook';
+  }
+
+  const paid = params.has('fbclid') || /paid|cpc|ads?$|pauta/.test(utmMedium);
+  // fbclid solo indica un anuncio de Meta, sin decir si fue en Facebook o Instagram
+  if (!source && params.has('fbclid')) source = 'meta';
+
+  if (source) return source + (paid ? ' (pauta)' : '');
+  return host || 'directo';
+}
+
+const referrer = detectSource().slice(0, 100);
 record('visits', { referrer });
 
 // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
