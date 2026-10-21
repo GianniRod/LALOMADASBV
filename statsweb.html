@@ -185,6 +185,33 @@
         }
         .note { font-size: .78rem; color: var(--text-light); margin-top: 24px; }
 
+        /* ---- Exportar a Excel ---- */
+        .export { margin-bottom: 16px; }
+        .export-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 14px; }
+        .export-head h2 { margin-bottom: 0; }
+        .export-head p { font-size: .78rem; color: var(--text-light); }
+        .export-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 16px; }
+        .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+        .seg label { font-size: .82rem; padding: 6px 12px; border-radius: 6px; cursor: pointer; color: var(--text-light); }
+        .seg input { position: absolute; opacity: 0; pointer-events: none; }
+        .seg label:has(input:checked) { background: var(--card); color: var(--text); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+        .field { display: flex; flex-direction: column; gap: 4px; font-size: .75rem; color: var(--text-light); }
+        .field input {
+            font: inherit; font-size: .85rem; color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--card);
+        }
+        .dates { display: flex; gap: 12px; flex-wrap: wrap; }
+        .dates.hidden { display: none; }
+        .btn {
+            font: inherit; font-size: .85rem; font-weight: 600;
+            background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+            padding: 9px 18px; cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.08); }
+        .btn:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+        .export-msg { font-size: .8rem; color: var(--text-light); margin-top: 10px; min-height: 1.2em; }
+        .export-msg.err { color: #8A1C1C; }
+
         @media (max-width: 860px) {
             .kpis { grid-template-columns: repeat(2, 1fr); }
             .grid-2 { grid-template-columns: 1fr; }
@@ -229,6 +256,25 @@
                 <div class="kpi-value" id="kToday">—</div>
                 <div class="kpi-sub" id="kTodaySub">visitantes nuevos</div>
             </div>
+        </section>
+
+        <section class="card export">
+            <div class="export-head">
+                <h2>Descargar Excel</h2>
+                <p>Incluye resumen, detalle por día, visitas y clicks.</p>
+            </div>
+            <div class="export-form">
+                <div class="seg" role="radiogroup" aria-label="Período">
+                    <label><input type="radio" name="exportMode" value="range" checked>Entre fechas</label>
+                    <label><input type="radio" name="exportMode" value="all">Histórico</label>
+                </div>
+                <div class="dates" id="exportDates">
+                    <label class="field">Desde<input type="date" id="exportFrom"></label>
+                    <label class="field">Hasta<input type="date" id="exportTo"></label>
+                </div>
+                <button class="btn" id="exportBtn" disabled>Descargar Excel</button>
+            </div>
+            <div class="export-msg" id="exportMsg"></div>
         </section>
 
         <section class="grid-2">
@@ -364,6 +410,7 @@
                   </tr>`).join('')
                 : '<tr><td colspan="2" class="empty">Sin datos todavía.</td></tr>';
 
+            if (!exporting) $('exportBtn').disabled = false;
             $('statusDot').classList.add('live');
             $('statusText').textContent = 'En vivo · ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
         }
@@ -379,7 +426,7 @@
         ['visits', 'clicks'].forEach((name) => {
             onSnapshot(
                 query(collection(db, name), orderBy('ts', 'desc')),
-                (snap) => { state[name] = snap.docs.map((d) => d.data()); render(); },
+                (snap) => { state[name] = snap.docs.map((d) => ({ _id: d.id, ...d.data() })); render(); },
                 showError
             );
         });
@@ -396,6 +443,275 @@
             tip.style.top = (e.clientY - 36) + 'px';
         });
         $('chart').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+        // ---- Exportar a Excel ----
+        // ExcelJS se carga recién al exportar, para no hacer más lento el panel
+        const EXCELJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+        let excelJsPromise = null;
+        let exporting = false;
+
+        function loadExcelJS() {
+            if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+            if (!excelJsPromise) {
+                excelJsPromise = new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = EXCELJS_URL;
+                    s.onload = () => resolve(window.ExcelJS);
+                    s.onerror = () => { excelJsPromise = null; reject(new Error('no se pudo cargar la librería de Excel')); };
+                    document.head.appendChild(s);
+                });
+            }
+            return excelJsPromise;
+        }
+
+        const XL = { accent: 'FF2D6A4F', muted: 'FF60607A', border: 'FFE4E4E4', white: 'FFFFFFFF' };
+        const tzPartsFmt = new Intl.DateTimeFormat('en-CA', {
+            timeZone: STATS_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+        });
+        const weekdayFmt = new Intl.DateTimeFormat('es-AR', { weekday: 'long', timeZone: 'UTC' });
+
+        // Excel no maneja zonas horarias: se guarda la hora local de STATS_TIMEZONE como si fuera UTC
+        function excelDateTime(ts) {
+            if (!ts) return null;
+            const p = Object.fromEntries(tzPartsFmt.formatToParts(ts.toDate()).map((x) => [x.type, x.value]));
+            return new Date(Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute, +p.second));
+        }
+        const excelDay = (day) => new Date(day + 'T00:00:00Z');
+        const displayDay = (d) => d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4);
+        const shortId = (id) => (id || '').slice(0, 8);
+        const buttonName = (k) => BUTTON_NAMES[k] || k || '—';
+        const referrerName = (k) => k === 'directo' ? 'Directo / sin referencia' : (k || '—');
+        const withFmt = (value, numFmt) => ({ __fmt: numFmt, value });
+
+        function daysBetween(from, to) {
+            const out = [];
+            for (let d = excelDay(from); d <= excelDay(to); d.setUTCDate(d.getUTCDate() + 1)) {
+                out.push(d.toISOString().slice(0, 10));
+            }
+            return out;
+        }
+
+        // Escribe una tabla con encabezado verde desde startRow; devuelve la fila siguiente libre
+        function writeTable(ws, startRow, cols, rows) {
+            const header = ws.getRow(startRow);
+            cols.forEach((c, i) => {
+                const cell = header.getCell(i + 1);
+                cell.value = c.header;
+                cell.font = { bold: true, color: { argb: XL.white } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL.accent } };
+                cell.alignment = { vertical: 'middle', horizontal: i === 0 ? 'left' : 'right' };
+            });
+            header.height = 20;
+
+            rows.forEach((r, ri) => {
+                const row = ws.getRow(startRow + 1 + ri);
+                r.forEach((v, i) => {
+                    const cell = row.getCell(i + 1);
+                    if (v && v.__fmt) { cell.value = v.value; cell.numFmt = v.__fmt; }
+                    else { cell.value = v; if (cols[i].numFmt) cell.numFmt = cols[i].numFmt; }
+                    cell.alignment = { horizontal: i === 0 ? 'left' : 'right' };
+                    cell.border = { bottom: { style: 'thin', color: { argb: XL.border } } };
+                });
+            });
+            return startRow + 1 + rows.length;
+        }
+
+        function dataSheet(wb, name, cols, rows) {
+            const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
+            ws.columns = cols.map((c) => ({ width: c.width }));
+            writeTable(ws, 1, cols, rows);
+            ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
+            return ws;
+        }
+
+        function sectionTitle(ws, row, text) {
+            const cell = ws.getCell(row, 1);
+            cell.value = text;
+            cell.font = { bold: true, size: 12 };
+            return row + 1;
+        }
+
+        async function buildWorkbook(from, to, label) {
+            const ExcelJS = await loadExcelJS();
+            const inRange = (d) => d.day && d.day >= from && d.day <= to;
+            // state viene ordenado del más nuevo al más viejo; en el Excel va cronológico
+            const visits = state.visits.filter(inRange).reverse();
+            const clicks = state.clicks.filter(inRange).reverse();
+            const visitById = new Map(state.visits.map((v) => [v._id, v]));
+            const clickedIds = new Set(state.clicks.map((c) => c._id));
+
+            const days = daysBetween(from, to);
+            const vByDay = Object.fromEntries(countBy(visits, 'day'));
+            const cByDay = Object.fromEntries(countBy(clicks, 'day'));
+            const activeDays = days.filter((d) => vByDay[d] || cByDay[d]).length;
+            const bestDay = days.reduce((b, d) => ((vByDay[d] || 0) > (vByDay[b] || 0) ? d : b), days[0]);
+
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'La Lomada — Panel de estadísticas';
+            wb.created = new Date();
+
+            // ---- Hoja 1: Resumen ----
+            const ws = wb.addWorksheet('Resumen', { views: [{ showGridLines: false }] });
+            ws.columns = [{ width: 40 }, { width: 16 }, { width: 16 }, { width: 14 }];
+            ws.getCell('A1').value = 'La Lomada de Puiggari — Estadísticas';
+            ws.getCell('A1').font = { size: 16, bold: true, color: { argb: XL.accent } };
+            ws.getCell('A2').value = 'Período: ' + label;
+            ws.getCell('A3').value = 'Generado: ' + dateTimeFmt.format(new Date()) + ' (' + STATS_TIMEZONE + ')';
+            ws.getCell('A2').font = ws.getCell('A3').font = { color: { argb: XL.muted } };
+
+            let r = sectionTitle(ws, 5, 'Indicadores');
+            r = writeTable(ws, r, [{ header: 'Indicador' }, { header: 'Valor', numFmt: '#,##0' }], [
+                ['Visitantes únicos', visits.length],
+                ['Clicks a WhatsApp', clicks.length],
+                ['Conversión (clicks ÷ visitantes)', withFmt(visits.length ? clicks.length / visits.length : null, '0.0%')],
+                ['Días del período', days.length],
+                ['Días con actividad', activeDays],
+                ['Promedio de visitantes por día', withFmt(visits.length / days.length, '0.0')],
+                ['Promedio de clicks por día', withFmt(clicks.length / days.length, '0.0')],
+                ['Día con más visitantes', vByDay[bestDay] ? `${displayDay(bestDay)} (${vByDay[bestDay]})` : '—']
+            ]);
+
+            r = sectionTitle(ws, r + 1, 'Clicks por botón');
+            const byButton = countBy(clicks, 'button');
+            r = writeTable(ws, r,
+                [{ header: 'Botón' }, { header: 'Clicks', numFmt: '#,##0' }, { header: '% del total', numFmt: '0.0%' }],
+                byButton.length
+                    ? byButton.map(([k, n]) => [buttonName(k), n, n / clicks.length])
+                    : [['Sin clicks en el período', 0, null]]);
+
+            r = sectionTitle(ws, r + 1, 'De dónde llegan');
+            const byReferrer = countBy(visits, 'referrer');
+            r = writeTable(ws, r,
+                [{ header: 'Origen' }, { header: 'Visitantes', numFmt: '#,##0' }, { header: 'Hicieron click', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
+                byReferrer.length
+                    ? byReferrer.map(([k, n]) => {
+                        const conv = visits.filter((v) => (v.referrer || '—') === k && clickedIds.has(v._id)).length;
+                        return [referrerName(k), n, conv, conv / n];
+                    })
+                    : [['Sin visitas en el período', 0, 0, null]]);
+
+            const notes = [
+                'Cada IP se cuenta una sola vez: un visitante o un click por IP en todo el histórico.',
+                '"Hicieron click": visitantes de ese origen que en algún momento tocaron un botón de WhatsApp.',
+                '"ID visitante": código anónimo derivado de la IP; permite cruzar las hojas Visitas y Clicks.'
+            ];
+            notes.forEach((t, i) => {
+                const cell = ws.getCell(r + 1 + i, 1);
+                cell.value = t;
+                cell.font = { italic: true, size: 9, color: { argb: XL.muted } };
+            });
+
+            // ---- Hoja 2: Por día ----
+            const dayRows = days.map((d) => {
+                const nv = vByDay[d] || 0, nc = cByDay[d] || 0;
+                return [excelDay(d), weekdayFmt.format(excelDay(d)), nv, nc, nv ? nc / nv : null];
+            });
+            const wsDay = dataSheet(wb, 'Por día', [
+                { header: 'Fecha', numFmt: 'dd/mm/yyyy', width: 13 },
+                { header: 'Día', width: 12 },
+                { header: 'Visitantes nuevos', numFmt: '#,##0', width: 18 },
+                { header: 'Clicks a WhatsApp', numFmt: '#,##0', width: 18 },
+                { header: 'Conversión', numFmt: '0.0%', width: 12 }
+            ], dayRows);
+            const total = wsDay.getRow(dayRows.length + 2);
+            total.values = ['Total', '', visits.length, clicks.length, visits.length ? clicks.length / visits.length : null];
+            total.font = { bold: true };
+            total.getCell(3).numFmt = total.getCell(4).numFmt = '#,##0';
+            total.getCell(5).numFmt = '0.0%';
+            total.eachCell((cell) => { cell.border = { top: { style: 'thin', color: { argb: XL.accent } } }; });
+            wsDay.autoFilter = { from: { row: 1, column: 1 }, to: { row: dayRows.length + 1, column: 5 } };
+
+            // ---- Hoja 3: Visitas ----
+            dataSheet(wb, 'Visitas', [
+                { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
+                { header: 'Origen', width: 30 },
+                { header: '¿Hizo click en WhatsApp?', width: 24 },
+                { header: 'ID visitante', width: 14 }
+            ], visits.map((v) => [
+                excelDateTime(v.ts) || excelDay(v.day),
+                referrerName(v.referrer),
+                clickedIds.has(v._id) ? 'Sí' : 'No',
+                shortId(v._id)
+            ]));
+
+            // ---- Hoja 4: Clicks ----
+            dataSheet(wb, 'Clicks', [
+                { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
+                { header: 'Botón', width: 38 },
+                { header: 'Origen de la visita', width: 30 },
+                { header: 'ID visitante', width: 14 }
+            ], clicks.map((c) => {
+                const v = visitById.get(c._id);
+                return [
+                    excelDateTime(c.ts) || excelDay(c.day),
+                    buttonName(c.button),
+                    v ? referrerName(v.referrer) : '—',
+                    shortId(c._id)
+                ];
+            }));
+
+            return wb;
+        }
+
+        async function downloadWorkbook(wb, filename) {
+            const buf = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }
+
+        const exportMode = () => document.querySelector('input[name="exportMode"]:checked').value;
+        function exportMsg(text, isError) {
+            $('exportMsg').textContent = text;
+            $('exportMsg').classList.toggle('err', !!isError);
+        }
+
+        $('exportTo').value = dayFmt.format(new Date());
+        $('exportFrom').value = lastDays(30)[0];
+        document.querySelectorAll('input[name="exportMode"]').forEach((input) => {
+            input.addEventListener('change', () => $('exportDates').classList.toggle('hidden', exportMode() === 'all'));
+        });
+
+        $('exportBtn').addEventListener('click', async () => {
+            if (!state.visits || !state.clicks) return;
+            const today = dayFmt.format(new Date());
+            let from, to, label, filename;
+
+            if (exportMode() === 'all') {
+                const allDays = [...state.visits, ...state.clicks].map((d) => d.day).filter(Boolean).sort();
+                from = allDays[0] || today;
+                to = today;
+                label = `Histórico (${displayDay(from)} al ${displayDay(to)})`;
+                filename = `lalomada-estadisticas_historico_${to}.xlsx`;
+            } else {
+                from = $('exportFrom').value;
+                to = $('exportTo').value;
+                if (!from || !to) { exportMsg('Elegí las dos fechas.', true); return; }
+                if (from > to) [from, to] = [to, from];
+                label = `${displayDay(from)} al ${displayDay(to)}`;
+                filename = `lalomada-estadisticas_${from}_a_${to}.xlsx`;
+            }
+
+            exporting = true;
+            $('exportBtn').disabled = true;
+            exportMsg('Generando Excel…');
+            try {
+                await downloadWorkbook(await buildWorkbook(from, to, label), filename);
+                exportMsg('Listo: ' + filename);
+            } catch (err) {
+                console.error(err);
+                exportMsg('No se pudo generar el Excel: ' + (err && err.message ? err.message : err), true);
+            } finally {
+                exporting = false;
+                $('exportBtn').disabled = false;
+            }
+        });
     </script>
 </body>
 
