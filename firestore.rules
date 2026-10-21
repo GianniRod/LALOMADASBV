@@ -30,6 +30,35 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Historial completo: un documento por acceso / por click (ID automático).
+    // ipHash permite cruzar qué acceso terminó en click a WhatsApp.
+
+    match /visitLog/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer'])
+        && request.resource.data.ipHash is string
+        && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && request.resource.data.referrer is string
+        && request.resource.data.referrer.size() <= 100;
+      allow update, delete: if false;
+    }
+
+    match /clickLog/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'button'])
+        && request.resource.data.ipHash is string
+        && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && request.resource.data.button is string
+        && request.resource.data.button.size() <= 40;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
