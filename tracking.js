@@ -129,11 +129,13 @@ function getGeo() {
 }
 
 async function record(collection, extra) {
-  const local = safeStorage('localStorage');
+  // sessionStorage (no localStorage): si se borran los datos desde el panel,
+  // en la próxima sesión la IP se vuelve a registrar
+  const local = safeStorage('sessionStorage');
   const ipHash = await getIpHash();
   if (!ipHash) return; // sin IP no se registra, para no inflar datos
 
-  // Evita escrituras innecesarias si este navegador ya registró esta IP
+  // Evita escrituras innecesarias si en esta sesión ya se registró esta IP
   if (local && local.getItem(flagKey(collection)) === ipHash) return;
 
   try {

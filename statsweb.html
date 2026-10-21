@@ -212,6 +212,11 @@
         .export-msg { font-size: .8rem; color: var(--text-light); margin-top: 10px; min-height: 1.2em; }
         .export-msg.err { color: #8A1C1C; }
 
+        /* ---- Eliminar datos ---- */
+        .btn.danger { background: #A23B3B; }
+        .danger-zone { margin-top: 16px; }
+        .or { font-size: .8rem; color: var(--text-light); padding-bottom: 9px; }
+
         /* ---- Mapa ---- */
         .map-card { margin-bottom: 16px; }
         .map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
@@ -372,6 +377,23 @@
             </div>
         </section>
 
+        <section class="card export danger-zone">
+            <div class="export-head">
+                <h2>Eliminar datos</h2>
+                <p>Borra visitas, accesos y clicks del período. Esas IPs se vuelven a registrar si entran de nuevo.</p>
+            </div>
+            <div class="export-form">
+                <button class="btn danger" id="deleteTodayBtn" disabled>Eliminar datos de hoy</button>
+                <span class="or">o entre</span>
+                <div class="dates">
+                    <label class="field">Desde<input type="datetime-local" id="deleteFrom"></label>
+                    <label class="field">Hasta<input type="datetime-local" id="deleteTo"></label>
+                </div>
+                <button class="btn danger" id="deleteRangeBtn" disabled>Eliminar entre fechas</button>
+            </div>
+            <div class="export-msg" id="deleteMsg"></div>
+        </section>
+
         <p class="note">Cada IP se cuenta una sola vez: si la misma persona entra o toca el botón varias veces, se registra como 1. Los datos se actualizan en vivo. La ubicación es aproximada (según la IP) y solo existe para visitas nuevas.</p>
     </div>
 
@@ -380,7 +402,7 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
         import {
-            getFirestore, collection, query, orderBy, onSnapshot, getDocs, where
+            getFirestore, collection, query, orderBy, onSnapshot, getDocs, where, writeBatch
         } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
         import { firebaseConfig, STATS_TIMEZONE } from './firebase-config.js';
 
@@ -510,6 +532,7 @@
 
             renderMap();
             if (!exporting) $('exportBtn').disabled = false;
+            if (!deleting) $('deleteTodayBtn').disabled = $('deleteRangeBtn').disabled = false;
             $('statusDot').classList.add('live');
             $('statusText').textContent = 'En vivo · ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
         }
@@ -525,7 +548,12 @@
         ['visits', 'clicks'].forEach((name) => {
             onSnapshot(
                 query(collection(db, name), orderBy('ts', 'desc')),
-                (snap) => { state[name] = snap.docs.map((d) => ({ _id: d.id, ...d.data() })); render(); },
+                (snap) => {
+                    state[name] = snap.docs.map((d) => ({ _id: d.id, ...d.data() }));
+                    // Una IP borrada puede volver a registrarse con otra ubicación
+                    if (name === 'visits') { map.provCache.clear(); map.depCache.clear(); }
+                    render();
+                },
                 showError
             );
         });
@@ -1132,6 +1160,93 @@
                 exporting = false;
                 $('exportBtn').disabled = false;
             }
+        });
+
+        // ---- Eliminar datos ----
+        // Borra los registros "1 por IP" (visits, clicks) y el historial (visitLog, clickLog)
+        // cuya hora cae en el período. Al borrar el registro de una IP, si vuelve a entrar se registra de nuevo.
+        const DELETE_COLLECTIONS = ['visits', 'clicks', 'visitLog', 'clickLog'];
+        const BATCH_SIZE = 400; // Firestore admite hasta 500 operaciones por lote
+        let deleting = false;
+
+        function tzParts(date) {
+            return Object.fromEntries(tzPartsFmt.formatToParts(date).map((x) => [x.type, x.value]));
+        }
+
+        // "YYYY-MM-DDTHH:mm" en hora de STATS_TIMEZONE → Date
+        function zonedToDate(value) {
+            const [d, t] = value.split('T');
+            const [y, m, day] = d.split('-').map(Number);
+            const [hh, mm] = t.split(':').map(Number);
+            const guess = Date.UTC(y, m - 1, day, hh, mm);
+            const p = tzParts(new Date(guess));
+            const asUtc = Date.UTC(+p.year, p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+            return new Date(guess - (asUtc - guess));
+        }
+
+        function nowInput() {
+            const p = tzParts(new Date());
+            return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+        }
+
+        function deleteMsg(text, isError) {
+            $('deleteMsg').textContent = text;
+            $('deleteMsg').classList.toggle('err', !!isError);
+        }
+
+        async function deleteRange(from, to) {
+            if (deleting) return;
+            deleting = true;
+            $('deleteTodayBtn').disabled = $('deleteRangeBtn').disabled = true;
+            deleteMsg('Buscando datos del período…');
+            try {
+                const snaps = await Promise.all(DELETE_COLLECTIONS.map((name) =>
+                    getDocs(query(collection(db, name), where('ts', '>=', from), where('ts', '<=', to)))));
+                const [nVisits, nClicks, nAccess, nClickLog] = snaps.map((s) => s.size);
+                const total = nVisits + nClicks + nAccess + nClickLog;
+                const period = `${dateTimeFmt.format(from)} a ${dateTimeFmt.format(to)}`;
+                if (!total) { deleteMsg(`No hay datos entre ${period}.`); return; }
+
+                const ok = confirm(
+                    `Se van a eliminar los datos entre ${period}:\n\n` +
+                    `· ${nVisits} visitante(s) único(s)\n` +
+                    `· ${nClicks} click(s) único(s) a WhatsApp\n` +
+                    `· ${nAccess} acceso(s) del historial\n` +
+                    `· ${nClickLog} click(s) del historial\n\n` +
+                    'Esas IPs se vuelven a registrar si entran de nuevo. No se puede deshacer. ¿Continuar?');
+                if (!ok) { deleteMsg('Cancelado.'); return; }
+
+                const refs = snaps.flatMap((s) => s.docs.map((d) => d.ref));
+                for (let i = 0; i < refs.length; i += BATCH_SIZE) {
+                    deleteMsg(`Eliminando… ${i} de ${refs.length}`);
+                    const batch = writeBatch(db);
+                    refs.slice(i, i + BATCH_SIZE).forEach((ref) => batch.delete(ref));
+                    await batch.commit();
+                }
+                deleteMsg(`Listo: se eliminaron ${refs.length} registros (${period}).`);
+            } catch (err) {
+                console.error(err);
+                deleteMsg('No se pudieron eliminar los datos: ' + (err && err.message ? err.message : err), true);
+            } finally {
+                deleting = false;
+                $('deleteTodayBtn').disabled = $('deleteRangeBtn').disabled = false;
+            }
+        }
+
+        $('deleteFrom').value = nowInput().slice(0, 11) + '00:00';
+        $('deleteTo').value = nowInput();
+
+        $('deleteTodayBtn').addEventListener('click', () => {
+            const today = nowInput().slice(0, 11);
+            deleteRange(zonedToDate(today + '00:00'), new Date(zonedToDate(today + '23:59').getTime() + 59999));
+        });
+
+        $('deleteRangeBtn').addEventListener('click', () => {
+            let fromVal = $('deleteFrom').value, toVal = $('deleteTo').value;
+            if (!fromVal || !toVal) { deleteMsg('Elegí fecha y hora de inicio y de fin.', true); return; }
+            if (fromVal > toVal) [fromVal, toVal] = [toVal, fromVal];
+            // "Hasta" incluye todo ese minuto
+            deleteRange(zonedToDate(fromVal), new Date(zonedToDate(toVal).getTime() + 59999));
         });
     </script>
 </body>
