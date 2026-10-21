@@ -78,7 +78,7 @@ function getIpHash() {
   return ipHashPromise;
 }
 
-// Ubicación aproximada según la IP (país, provincia, ciudad). Va aparte del hash
+// Ubicación aproximada según la IP (país, provincia, ciudad, coordenadas). Va aparte del hash
 // para no cambiar el ID de los visitantes ya registrados. La IP no se guarda.
 const GEO_SERVICES = [
   'https://get.geojs.io/v1/ip/geo.json',
@@ -110,6 +110,12 @@ function getGeo() {
         if (d.country_code) geo.country = String(d.country_code).slice(0, 2).toUpperCase();
         if (d.region) geo.region = String(d.region).slice(0, 60);
         if (d.city) geo.city = String(d.city).slice(0, 60);
+        // Coordenadas aproximadas (redondeadas a ~1 km) para ubicar el departamento en el mapa
+        const lat = parseFloat(d.latitude), lon = parseFloat(d.longitude);
+        if (isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+          geo.lat = Math.round(lat * 100) / 100;
+          geo.lon = Math.round(lon * 100) / 100;
+        }
         if (!geo.country && !geo.region) continue;
         if (!best) best = geo;
         if (geo.city) { best = geo; break; }
