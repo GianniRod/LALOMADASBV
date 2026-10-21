@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // El ID del documento es el SHA-256 de la IP del visitante.
+    // Solo se permite CREAR: si la IP ya existe, el intento se
+    // trata como "update" y se rechaza → 1 registro por IP.
+
+    match /visits/{ipHash} {
+      allow read: if true;
+      allow create: if ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer'])
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && request.resource.data.referrer is string
+        && request.resource.data.referrer.size() <= 100;
+      allow update, delete: if false;
+    }
+
+    match /clicks/{ipHash} {
+      allow read: if true;
+      allow create: if ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.keys().hasOnly(['ts', 'day', 'button'])
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && request.resource.data.button is string
+        && request.resource.data.button.size() <= 40;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

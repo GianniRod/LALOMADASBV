@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/png" href="https://i.postimg.cc/Qd015N9c/favicon.png">
+    <title>Estadísticas — La Lomada</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg: #F6F6F2;
+            --card: #FFFFFF;
+            --text: #1A1A1A;
+            --text-light: #60607A;
+            --accent: #2D6A4F;
+            --accent-light: rgba(45, 106, 79, 0.10);
+            --gold: #B08D57;
+            --gold-light: rgba(176, 141, 87, 0.14);
+            --border: #E4E4E4;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            padding: 32px 16px 64px;
+        }
+
+        .wrap { max-width: 1100px; margin: 0 auto; }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+
+        .label {
+            font-size: .72rem;
+            font-weight: 600;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--gold);
+        }
+
+        h1 {
+            font-family: 'DM Serif Display', serif;
+            font-weight: 400;
+            font-size: 2rem;
+            line-height: 1.15;
+        }
+
+        h2 {
+            font-size: .95rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .status {
+            font-size: .82rem;
+            color: var(--text-light);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--gold);
+        }
+        .dot.live { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-light); }
+
+        .kpis {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .kpi-title { font-size: .82rem; color: var(--text-light); }
+        .kpi-value {
+            font-size: 2.2rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+            margin: 4px 0 2px;
+        }
+        .kpi-sub { font-size: .78rem; color: var(--text-light); }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        /* ---- Gráfico de barras ---- */
+        .legend { display: flex; gap: 16px; font-size: .8rem; color: var(--text-light); margin-bottom: 12px; }
+        .legend span { display: inline-flex; align-items: center; gap: 6px; }
+        .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+        .chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 200px;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+        .chart-col {
+            flex: 1;
+            height: 100%;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 1px;
+            position: relative;
+            cursor: default;
+        }
+        .chart-col:hover { background: rgba(0,0,0,.03); }
+        .bar { width: 45%; max-width: 12px; border-radius: 3px 3px 0 0; min-height: 0; }
+        .bar.v { background: var(--accent); }
+        .bar.c { background: var(--gold); }
+        .chart-axis {
+            display: flex;
+            justify-content: space-between;
+            font-size: .72rem;
+            color: var(--text-light);
+            margin-top: 6px;
+        }
+        .tip {
+            position: fixed;
+            pointer-events: none;
+            background: var(--text);
+            color: #fff;
+            font-size: .75rem;
+            padding: 6px 10px;
+            border-radius: 6px;
+            white-space: nowrap;
+            display: none;
+            z-index: 10;
+        }
+
+        /* ---- Listas ---- */
+        .rows { display: flex; flex-direction: column; gap: 12px; }
+        .row-top { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: 4px; }
+        .row-top b { font-variant-numeric: tabular-nums; }
+        .meter { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+        .meter div { height: 100%; background: var(--gold); border-radius: 3px; }
+        .meter.green div { background: var(--accent); }
+
+        table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+        th { text-align: left; font-weight: 500; color: var(--text-light); padding: 8px 0; border-bottom: 1px solid var(--border); }
+        td { padding: 9px 0; border-bottom: 1px solid var(--bg); font-variant-numeric: tabular-nums; }
+        td:last-child, th:last-child { text-align: right; }
+
+        .empty { font-size: .85rem; color: var(--text-light); }
+        .error {
+            background: #FDECEC;
+            color: #8A1C1C;
+            border: 1px solid #F5C2C2;
+            border-radius: 10px;
+            padding: 14px 16px;
+            font-size: .85rem;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .note { font-size: .78rem; color: var(--text-light); margin-top: 24px; }
+
+        @media (max-width: 860px) {
+            .kpis { grid-template-columns: repeat(2, 1fr); }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 420px) {
+            .kpi-value { font-size: 1.8rem; }
+            h1 { font-size: 1.6rem; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <header>
+            <div>
+                <span class="label">Panel de desarrolladores</span>
+                <h1>La Lomada de Puiggari</h1>
+            </div>
+            <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
+        </header>
+
+        <div class="error" id="errorBox"></div>
+
+        <section class="kpis">
+            <div class="card">
+                <div class="kpi-title">Visitantes únicos</div>
+                <div class="kpi-value" id="kVisits">—</div>
+                <div class="kpi-sub">1 por IP · histórico</div>
+            </div>
+            <div class="card">
+                <div class="kpi-title">Clicks a WhatsApp</div>
+                <div class="kpi-value" id="kClicks">—</div>
+                <div class="kpi-sub">1 por IP · histórico</div>
+            </div>
+            <div class="card">
+                <div class="kpi-title">Conversión</div>
+                <div class="kpi-value" id="kConv">—</div>
+                <div class="kpi-sub">clicks ÷ visitantes</div>
+            </div>
+            <div class="card">
+                <div class="kpi-title">Hoy</div>
+                <div class="kpi-value" id="kToday">—</div>
+                <div class="kpi-sub" id="kTodaySub">visitantes nuevos</div>
+            </div>
+        </section>
+
+        <section class="grid-2">
+            <div class="card">
+                <h2>Últimos 30 días</h2>
+                <div class="legend">
+                    <span><i style="background:var(--accent)"></i>Visitantes nuevos</span>
+                    <span><i style="background:var(--gold)"></i>Clicks a WhatsApp</span>
+                </div>
+                <div class="chart" id="chart"></div>
+                <div class="chart-axis" id="chartAxis"></div>
+            </div>
+            <div class="card">
+                <h2>Clicks por botón</h2>
+                <div class="rows" id="byButton"><p class="empty">Sin datos todavía.</p></div>
+            </div>
+        </section>
+
+        <section class="grid-2">
+            <div class="card">
+                <h2>Últimos clicks a WhatsApp</h2>
+                <table>
+                    <thead><tr><th>Fecha y hora</th><th>Botón</th></tr></thead>
+                    <tbody id="recentClicks"><tr><td colspan="2" class="empty">Sin datos todavía.</td></tr></tbody>
+                </table>
+            </div>
+            <div class="card">
+                <h2>De dónde llegan</h2>
+                <div class="rows" id="byReferrer"><p class="empty">Sin datos todavía.</p></div>
+            </div>
+        </section>
+
+        <p class="note">Cada IP se cuenta una sola vez: si la misma persona entra o toca el botón varias veces, se registra como 1. Los datos se actualizan en vivo.</p>
+    </div>
+
+    <div class="tip" id="tip"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+        import {
+            getFirestore, collection, query, orderBy, onSnapshot
+        } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+        import { firebaseConfig, STATS_TIMEZONE } from './firebase-config.js';
+
+        const db = getFirestore(initializeApp(firebaseConfig));
+
+        const BUTTON_NAMES = {
+            ctaNavbar: 'Menú · Solicitar asesoramiento',
+            ctaHero: 'Portada · Solicitar asesoramiento',
+            ctaFooter: 'Sección final · Solicitar asesoramiento',
+            ctaWhatsappFloat: 'Botón flotante de WhatsApp'
+        };
+
+        const state = { visits: null, clicks: null };
+        const $ = (id) => document.getElementById(id);
+        const fmt = new Intl.NumberFormat('es-AR');
+        const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: STATS_TIMEZONE });
+        const dateTimeFmt = new Intl.DateTimeFormat('es-AR', {
+            timeZone: STATS_TIMEZONE, day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        function countBy(list, key) {
+            const map = {};
+            list.forEach((d) => { const k = d[key] || '—'; map[k] = (map[k] || 0) + 1; });
+            return Object.entries(map).sort((a, b) => b[1] - a[1]);
+        }
+
+        function renderRows(el, entries, nameFn, green) {
+            if (!entries.length) { el.innerHTML = '<p class="empty">Sin datos todavía.</p>'; return; }
+            const max = entries[0][1];
+            el.innerHTML = entries.slice(0, 8).map(([k, n]) => `
+                <div>
+                    <div class="row-top"><span>${escapeHtml(nameFn(k))}</span><b>${fmt.format(n)}</b></div>
+                    <div class="meter${green ? ' green' : ''}"><div style="width:${(n / max) * 100}%"></div></div>
+                </div>`).join('');
+        }
+
+        function lastDays(n) {
+            const days = [];
+            for (let i = n - 1; i >= 0; i--) {
+                days.push(dayFmt.format(new Date(Date.now() - i * 86400000)));
+            }
+            return days;
+        }
+
+        function renderChart(visits, clicks) {
+            const days = lastDays(30);
+            const v = Object.fromEntries(countBy(visits, 'day'));
+            const c = Object.fromEntries(countBy(clicks, 'day'));
+            const max = Math.max(1, ...days.map((d) => Math.max(v[d] || 0, c[d] || 0)));
+
+            $('chart').innerHTML = days.map((d) => {
+                const nv = v[d] || 0, nc = c[d] || 0;
+                return `<div class="chart-col" data-day="${d}" data-v="${nv}" data-c="${nc}">
+                    <div class="bar v" style="height:${(nv / max) * 100}%"></div>
+                    <div class="bar c" style="height:${(nc / max) * 100}%"></div>
+                </div>`;
+            }).join('');
+
+            const short = (d) => d.slice(8, 10) + '/' + d.slice(5, 7);
+            $('chartAxis').innerHTML = `<span>${short(days[0])}</span><span>${short(days[15])}</span><span>${short(days[29])}</span>`;
+        }
+
+        function render() {
+            if (!state.visits || !state.clicks) return;
+            const visits = state.visits, clicks = state.clicks;
+            const today = dayFmt.format(new Date());
+
+            $('kVisits').textContent = fmt.format(visits.length);
+            $('kClicks').textContent = fmt.format(clicks.length);
+            $('kConv').textContent = visits.length
+                ? (clicks.length / visits.length * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%'
+                : '—';
+            const vToday = visits.filter((d) => d.day === today).length;
+            const cToday = clicks.filter((d) => d.day === today).length;
+            $('kToday').textContent = fmt.format(vToday);
+            $('kTodaySub').textContent = `visitantes nuevos · ${fmt.format(cToday)} click${cToday === 1 ? '' : 's'}`;
+
+            renderChart(visits, clicks);
+            renderRows($('byButton'), countBy(clicks, 'button'), (k) => BUTTON_NAMES[k] || k, false);
+            renderRows($('byReferrer'), countBy(visits, 'referrer'), (k) => k === 'directo' ? 'Directo / sin referencia' : k, true);
+
+            const recent = clicks.slice(0, 15);
+            $('recentClicks').innerHTML = recent.length
+                ? recent.map((d) => `<tr>
+                    <td>${d.ts ? dateTimeFmt.format(d.ts.toDate()) : '—'}</td>
+                    <td>${escapeHtml(BUTTON_NAMES[d.button] || d.button || '—')}</td>
+                  </tr>`).join('')
+                : '<tr><td colspan="2" class="empty">Sin datos todavía.</td></tr>';
+
+            $('statusDot').classList.add('live');
+            $('statusText').textContent = 'En vivo · ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function showError(err) {
+            console.error(err);
+            $('errorBox').style.display = 'block';
+            $('errorBox').textContent = 'No se pudieron cargar las estadísticas: ' + (err && err.message ? err.message : err);
+            $('statusDot').classList.remove('live');
+            $('statusText').textContent = 'Sin conexión';
+        }
+
+        ['visits', 'clicks'].forEach((name) => {
+            onSnapshot(
+                query(collection(db, name), orderBy('ts', 'desc')),
+                (snap) => { state[name] = snap.docs.map((d) => d.data()); render(); },
+                showError
+            );
+        });
+
+        // Tooltip del gráfico
+        const tip = $('tip');
+        $('chart').addEventListener('mousemove', (e) => {
+            const col = e.target.closest('.chart-col');
+            if (!col) { tip.style.display = 'none'; return; }
+            const d = col.dataset.day;
+            tip.textContent = `${d.slice(8, 10)}/${d.slice(5, 7)} · ${col.dataset.v} visitantes · ${col.dataset.c} clicks`;
+            tip.style.display = 'block';
+            tip.style.left = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + 'px';
+            tip.style.top = (e.clientY - 36) + 'px';
+        });
+        $('chart').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    </script>
+</body>
+
+</html>
