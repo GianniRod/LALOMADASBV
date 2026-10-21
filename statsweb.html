@@ -212,9 +212,41 @@
         .export-msg { font-size: .8rem; color: var(--text-light); margin-top: 10px; min-height: 1.2em; }
         .export-msg.err { color: #8A1C1C; }
 
+        /* ---- Mapa ---- */
+        .map-card { margin-bottom: 16px; }
+        .map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+        .map-head h2 { margin-bottom: 2px; }
+        .map-sub { font-size: .78rem; color: var(--text-light); }
+        .btn-ghost {
+            font: inherit; font-size: .82rem; font-weight: 500; white-space: nowrap;
+            background: var(--card); color: var(--accent); border: 1px solid var(--border); border-radius: 8px;
+            padding: 6px 12px; cursor: pointer;
+        }
+        .btn-ghost:hover { background: var(--accent-light); }
+        .map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+        .map-box { position: relative; }
+        #map { width: 100%; height: 620px; display: block; }
+        #map path { stroke: var(--card); stroke-width: .7; cursor: pointer; transition: fill .25s; vector-effect: non-scaling-stroke; }
+        #map path.hov, #map path.sel { stroke: var(--text); stroke-width: 1.6; }
+        .map-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: .85rem; color: var(--text-light); }
+        .map-detail { background: var(--bg); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; min-height: 104px; }
+        .map-detail .name { font-weight: 600; font-size: .9rem; }
+        .map-detail .big { font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 4px; }
+        .map-detail .meta { font-size: .8rem; color: var(--text-light); }
+        .map-legend { margin-bottom: 16px; font-size: .75rem; color: var(--text-light); }
+        .map-legend .bar-scale { height: 10px; border-radius: 5px; margin: 6px 0 4px; }
+        .map-legend .ends { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+        .map-legend .zero { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
+        .map-legend .zero i { width: 10px; height: 10px; border-radius: 2px; background: #ECECE6; border: 1px solid var(--border); }
+        .map-rank > div { cursor: pointer; border-radius: 6px; }
+        .map-rank > div:hover .row-top span { color: var(--accent); }
+        .map-foot { font-size: .75rem; color: var(--text-light); margin-top: 14px; }
+
         @media (max-width: 860px) {
             .kpis { grid-template-columns: repeat(2, 1fr); }
             .grid-2 { grid-template-columns: 1fr; }
+            .map-layout { grid-template-columns: 1fr; }
+            #map { height: 480px; }
         }
         @media (max-width: 420px) {
             .kpi-value { font-size: 1.8rem; }
@@ -275,6 +307,28 @@
                 <button class="btn" id="exportBtn" disabled>Descargar Excel</button>
             </div>
             <div class="export-msg" id="exportMsg"></div>
+        </section>
+
+        <section class="card map-card">
+            <div class="map-head">
+                <div>
+                    <h2 id="mapTitle">Visitantes por provincia</h2>
+                    <p class="map-sub" id="mapSub">Tocá una provincia para ver sus departamentos.</p>
+                </div>
+                <button class="btn-ghost" id="mapBack" hidden>← Argentina</button>
+            </div>
+            <div class="map-layout">
+                <div class="map-box">
+                    <svg id="map" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mapa de visitantes"></svg>
+                    <div class="map-loading" id="mapLoading">Cargando mapa…</div>
+                </div>
+                <aside>
+                    <div class="map-detail" id="mapDetail"></div>
+                    <div class="map-legend" id="mapLegend"></div>
+                    <div class="rows map-rank" id="mapRank"></div>
+                    <p class="map-foot" id="mapFoot"></p>
+                </aside>
+            </div>
         </section>
 
         <section class="grid-2">
@@ -454,6 +508,7 @@
                   </tr>`).join('')
                 : '<tr><td colspan="2" class="empty">Sin datos todavía.</td></tr>';
 
+            renderMap();
             if (!exporting) $('exportBtn').disabled = false;
             $('statusDot').classList.add('live');
             $('statusText').textContent = 'En vivo · ' + new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
@@ -487,6 +542,258 @@
             tip.style.top = (e.clientY - 36) + 'px';
         });
         $('chart').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+        // ---- Mapa de visitantes ----
+        // Límites de provincias y departamentos: IGN (datos.gob.ar), en /geo.
+        // Cada visitante se ubica por sus coordenadas aproximadas (según la IP);
+        // si no las tiene, por el nombre de provincia / ciudad.
+        const D3_GEO_URL = 'https://cdn.jsdelivr.net/npm/d3-geo@3.1.1/+esm';
+        const MAP_W = 400, MAP_H = 700;
+        const MAP_EMPTY = '#ECECE6';
+        const MAP_LOW = [216, 233, 223], MAP_HIGH = [27, 67, 50];
+        const map = {
+            geo: null, provinces: null, deps: {},
+            view: null,       // null = Argentina; si no, id de la provincia abierta
+            drawn: undefined, // vista que tiene dibujada el SVG
+            selected: null, hovered: null, stats: null,
+            provCache: new Map(), depCache: new Map()
+        };
+
+        const normName = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .toLowerCase().replace(/^(provincia de|province of)\s+/, '').trim();
+        const CABA_ALIASES = ['buenos aires f.d.', 'ciudad autonoma de buenos aires', 'autonomous city of buenos aires', 'capital federal'];
+
+        function mapColor(n, max) {
+            if (!n) return MAP_EMPTY;
+            const t = 0.12 + 0.88 * Math.sqrt(n / max); // raíz: que una provincia muy grande no apague al resto
+            const c = MAP_LOW.map((lo, i) => Math.round(lo + (MAP_HIGH[i] - lo) * t));
+            return `rgb(${c.join(',')})`;
+        }
+
+        const hasCoords = (v) => typeof v.lat === 'number' && typeof v.lon === 'number';
+
+        // Devuelve el id de provincia, 'ext' (exterior) o null (sin dato)
+        function visitProvince(v) {
+            if (map.provCache.has(v._id)) return map.provCache.get(v._id);
+            let id = null;
+            if (v.country && v.country !== 'AR') id = 'ext';
+            else {
+                if (hasCoords(v)) {
+                    const f = map.provinces.find((p) => map.geo.geoContains(p, [v.lon, v.lat]));
+                    if (f) id = f.properties.id;
+                }
+                if (!id && v.region) {
+                    const r = normName(v.region);
+                    const f = CABA_ALIASES.includes(r)
+                        ? map.provinces.find((p) => p.properties.id === '02')
+                        : map.provinces.find((p) => normName(p.properties.nombre) === r)
+                          || map.provinces.find((p) => normName(p.properties.nombre).startsWith(r));
+                    if (f) id = f.properties.id;
+                }
+            }
+            map.provCache.set(v._id, id);
+            return id;
+        }
+
+        // Id del departamento (requiere los departamentos de esa provincia ya cargados)
+        function visitDepartment(v, provId) {
+            if (map.depCache.has(v._id)) return map.depCache.get(v._id);
+            const deps = map.deps[provId];
+            let f = hasCoords(v) && deps.find((d) => map.geo.geoContains(d, [v.lon, v.lat]));
+            if (!f && v.city) f = deps.find((d) => normName(d.properties.nombre) === normName(v.city));
+            const id = f ? f.properties.id : null;
+            map.depCache.set(v._id, id);
+            return id;
+        }
+
+        function computeMapStats() {
+            const clicked = new Set(state.clicks.map((c) => c._id));
+            const areas = {};
+            let total = 0, totalClicked = 0, unknown = 0, ext = 0, noDep = 0;
+            state.visits.forEach((v) => {
+                const p = visitProvince(v);
+                if (p === 'ext') { ext++; return; }
+                if (!p) { unknown++; return; }
+                let key = p;
+                if (map.view) {
+                    if (p !== map.view) return;
+                    key = visitDepartment(v, p);
+                }
+                total++;
+                if (clicked.has(v._id)) totalClicked++;
+                if (!key) { noDep++; return; }
+                const a = areas[key] || (areas[key] = { n: 0, c: 0 });
+                a.n++;
+                if (clicked.has(v._id)) a.c++;
+            });
+            const max = Math.max(0, ...Object.values(areas).map((a) => a.n));
+            return { areas, max, total, totalClicked, unknown, ext, noDep };
+        }
+
+        const mapFeatures = () => map.view ? map.deps[map.view] : map.provinces;
+        const featureName = (id) => (mapFeatures().find((f) => f.properties.id === id) || { properties: { nombre: '—' } }).properties.nombre;
+        const pct = (a, b) => b ? (a / b * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%' : '—';
+
+        function drawMapShapes() {
+            const features = mapFeatures();
+            const fc = { type: 'FeatureCollection', features };
+            const lon0 = map.geo.geoCentroid(fc)[0];
+            const proj = map.geo.geoTransverseMercator().rotate([-lon0, 0]).fitExtent([[10, 10], [MAP_W - 10, MAP_H - 10]], fc);
+            const path = map.geo.geoPath(proj);
+            $('map').innerHTML = features.map((f) =>
+                `<path d="${path(f)}" data-id="${f.properties.id}"></path>`).join('');
+            map.drawn = map.view;
+        }
+
+        function detailHtml(id) {
+            const s = map.stats;
+            if (id) {
+                const a = s.areas[id] || { n: 0, c: 0 };
+                return `<div class="name">${escapeHtml(featureName(id))}</div>
+                    <div class="big">${fmt.format(a.n)} <span class="meta">visitante${a.n === 1 ? '' : 's'}</span></div>
+                    <div class="meta">${fmt.format(a.c)} entraron a WhatsApp · conversión ${pct(a.c, a.n)}</div>
+                    <div class="meta">${pct(a.n, s.total)} de los visitantes ${map.view ? 'de la provincia' : 'ubicados'}</div>`;
+            }
+            const title = map.view
+                ? escapeHtml(map.provinces.find((p) => p.properties.id === map.view).properties.nombre) + ' · total'
+                : 'Argentina · total';
+            return `<div class="name">${title}</div>
+                <div class="big">${fmt.format(s.total)} <span class="meta">visitante${s.total === 1 ? '' : 's'}</span></div>
+                <div class="meta">${fmt.format(s.totalClicked)} entraron a WhatsApp · conversión ${pct(s.totalClicked, s.total)}</div>
+                <div class="meta">Pasá el cursor o tocá ${map.view ? 'un departamento' : 'una provincia'} para ver sus datos.</div>`;
+        }
+
+        function showDetail() {
+            $('mapDetail').innerHTML = detailHtml(map.hovered || map.selected);
+        }
+
+        function renderMap() {
+            if (!map.provinces || !state.visits || !state.clicks) return;
+            if (map.view && !map.deps[map.view]) return;
+            if (map.drawn !== map.view) drawMapShapes();
+            const s = map.stats = computeMapStats();
+
+            document.querySelectorAll('#map path').forEach((p) => {
+                const a = s.areas[p.dataset.id];
+                p.style.fill = mapColor(a ? a.n : 0, s.max);
+                p.classList.toggle('sel', p.dataset.id === map.selected);
+            });
+            const sel = map.selected && document.querySelector(`#map path[data-id="${map.selected}"]`);
+            if (sel) sel.parentNode.appendChild(sel);
+
+            const provName = map.view && map.provinces.find((p) => p.properties.id === map.view).properties.nombre;
+            $('mapTitle').textContent = map.view ? `${provName} · por departamento` : 'Visitantes por provincia';
+            $('mapSub').textContent = map.view
+                ? 'Tocá un departamento para ver sus datos.'
+                : 'Tocá una provincia para ver sus departamentos.';
+            $('mapBack').hidden = !map.view;
+
+            $('mapLegend').innerHTML = s.max
+                ? `Visitantes
+                   <div class="bar-scale" style="background:linear-gradient(90deg, ${mapColor(1, s.max)}, ${mapColor(s.max, s.max)})"></div>
+                   <div class="ends"><span>1</span><span>${fmt.format(s.max)}</span></div>
+                   <span class="zero"><i></i>Sin visitantes</span>`
+                : '';
+
+            const ranking = Object.entries(s.areas).sort((a, b) => b[1].n - a[1].n).slice(0, 8);
+            $('mapRank').innerHTML = ranking.length
+                ? ranking.map(([id, a]) => `
+                    <div data-id="${id}">
+                        <div class="row-top"><span>${escapeHtml(featureName(id))}</span><b>${fmt.format(a.n)}</b></div>
+                        <div class="meter green"><div style="width:${(a.n / s.max) * 100}%"></div></div>
+                    </div>`).join('')
+                : `<p class="empty">Todavía no hay visitantes ubicados${map.view ? ' en esta provincia' : ''}.</p>`;
+
+            const foot = [];
+            if (map.view && s.noDep) foot.push(`${fmt.format(s.noDep)} sin departamento identificado`);
+            if (!map.view && s.ext) foot.push(`${fmt.format(s.ext)} del exterior`);
+            if (!map.view && s.unknown) foot.push(`${fmt.format(s.unknown)} sin ubicación (visitas anteriores a esta función o sin dato)`);
+            foot.push('Ubicación aproximada según la IP: con datos móviles puede figurar Buenos Aires.');
+            $('mapFoot').textContent = foot.join(' · ');
+
+            showDetail();
+            $('mapLoading').style.display = 'none';
+        }
+
+        async function openProvince(id) {
+            map.view = id;
+            map.selected = map.hovered = null;
+            tip.style.display = 'none';
+            if (!map.deps[id]) {
+                $('mapLoading').style.display = 'flex';
+                $('mapLoading').textContent = 'Cargando departamentos…';
+                try {
+                    const res = await fetch(`geo/departamentos/${id}.json`);
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    map.deps[id] = (await res.json()).features;
+                } catch (err) {
+                    console.error(err);
+                    map.view = null;
+                    $('mapLoading').textContent = 'No se pudieron cargar los departamentos.';
+                    setTimeout(() => { $('mapLoading').style.display = 'none'; }, 2500);
+                }
+            }
+            renderMap();
+        }
+
+        function backToCountry() {
+            map.view = null;
+            map.selected = map.hovered = null;
+            renderMap();
+        }
+
+        async function initMap() {
+            try {
+                const [geo, res] = await Promise.all([import(D3_GEO_URL), fetch('geo/provincias.json')]);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                map.geo = geo;
+                map.provinces = (await res.json()).features;
+                renderMap();
+            } catch (err) {
+                console.error(err);
+                $('mapLoading').textContent = 'No se pudo cargar el mapa.';
+            }
+        }
+
+        const mapSvg = $('map');
+        function clearHover() {
+            map.hovered = null;
+            tip.style.display = 'none';
+            mapSvg.querySelectorAll('path.hov').forEach((p) => p.classList.remove('hov'));
+            if (map.stats) showDetail();
+        }
+        mapSvg.addEventListener('mousemove', (e) => {
+            const p = e.target.closest('path');
+            if (!p || !map.stats) { clearHover(); return; }
+            if (map.hovered !== p.dataset.id) {
+                mapSvg.querySelectorAll('path.hov').forEach((x) => x.classList.remove('hov'));
+                map.hovered = p.dataset.id;
+                p.classList.add('hov');
+                p.parentNode.appendChild(p); // al frente, para que el borde se vea completo
+                showDetail();
+            }
+            const a = map.stats.areas[p.dataset.id] || { n: 0, c: 0 };
+            tip.textContent = `${featureName(p.dataset.id)} · ${fmt.format(a.n)} visitante${a.n === 1 ? '' : 's'} · ${fmt.format(a.c)} a WhatsApp`;
+            tip.style.display = 'block';
+            tip.style.left = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8) + 'px';
+            tip.style.top = (e.clientY - 36) + 'px';
+        });
+        mapSvg.addEventListener('mouseleave', clearHover);
+        mapSvg.addEventListener('click', (e) => {
+            const p = e.target.closest('path');
+            if (!p || !map.stats) return;
+            if (!map.view) { openProvince(p.dataset.id); return; }
+            map.selected = map.selected === p.dataset.id ? null : p.dataset.id;
+            renderMap();
+        });
+        $('mapRank').addEventListener('click', (e) => {
+            const row = e.target.closest('[data-id]');
+            if (!row) return;
+            if (!map.view) openProvince(row.dataset.id);
+            else { map.selected = row.dataset.id; renderMap(); }
+        });
+        $('mapBack').addEventListener('click', backToCountry);
+        initMap();
 
         // ---- Exportar a Excel ----
         // ExcelJS se carga recién al exportar, para no hacer más lento el panel
