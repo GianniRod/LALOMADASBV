@@ -416,6 +416,19 @@
         };
 
         const state = { visits: null, clicks: null };
+        const raw = { visits: null, clicks: null };
+
+        // Datos que no se cuentan: robots que revisan la página desde San José, California (EE. UU.).
+        // Se excluyen sus visitas y también los clicks y accesos de esas mismas IPs.
+        const isExcludedGeo = (d) => d.country === 'US' && /^san jose$/i.test(d.city || '');
+        let excludedIps = new Set();
+
+        function applyExclusions() {
+            if (!raw.visits || !raw.clicks) return;
+            excludedIps = new Set(raw.visits.filter(isExcludedGeo).map((v) => v._id));
+            state.visits = raw.visits.filter((v) => !excludedIps.has(v._id));
+            state.clicks = raw.clicks.filter((c) => !excludedIps.has(c._id));
+        }
         const $ = (id) => document.getElementById(id);
         const fmt = new Intl.NumberFormat('es-AR');
         const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: STATS_TIMEZONE });
@@ -549,7 +562,8 @@
             onSnapshot(
                 query(collection(db, name), orderBy('ts', 'desc')),
                 (snap) => {
-                    state[name] = snap.docs.map((d) => ({ _id: d.id, ...d.data() }));
+                    raw[name] = snap.docs.map((d) => ({ _id: d.id, ...d.data() }));
+                    applyExclusions();
                     // Una IP borrada puede volver a registrarse con otra ubicación
                     if (name === 'visits') { map.provCache.clear(); map.depCache.clear(); }
                     render();
@@ -915,7 +929,8 @@
         // se suman solo si no tienen su par en el historial (datos de antes de que existiera).
         async function loadEvents(logName, unique, from, to) {
             const snap = await getDocs(query(collection(db, logName), where('day', '>=', from), where('day', '<=', to)));
-            const events = snap.docs.map((d) => ({ ...d.data(), ip: d.data().ipHash }));
+            const events = snap.docs.map((d) => ({ ...d.data(), ip: d.data().ipHash }))
+                .filter((e) => !isExcludedGeo(e) && !excludedIps.has(e.ip));
             events.forEach((e) => { e.time = eventTime(e); });
             unique.forEach((u) => {
                 const time = eventTime(u);

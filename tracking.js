@@ -131,7 +131,21 @@ function getGeo() {
   return geoPromise;
 }
 
+// Visitas que no se registran: robots que revisan la página (Vercel, buscadores),
+// que entran desde San José, California, o se identifican como bots en el user agent
+const BOT_UA = /bot|crawler|spider|headless|lighthouse|vercel|facebookexternalhit/i;
+let excludedPromise = null;
+function isExcludedVisitor() {
+  if (!excludedPromise) {
+    excludedPromise = BOT_UA.test(navigator.userAgent || '')
+      ? Promise.resolve(true)
+      : getGeo().then((geo) => geo.country === 'US' && /^san jose$/i.test(geo.city || ''));
+  }
+  return excludedPromise;
+}
+
 async function record(collection, extra) {
+  if (await isExcludedVisitor()) return;
   // sessionStorage (no localStorage): si se borran los datos desde el panel,
   // en la próxima sesión la IP se vuelve a registrar
   const local = safeStorage('sessionStorage');
@@ -160,6 +174,7 @@ async function record(collection, extra) {
 // Historial completo: guarda cada acceso/click (no solo el primero por IP),
 // con el hash de la IP para poder cruzar accesos con clicks
 async function log(name, extra) {
+  if (await isExcludedVisitor()) return true; // "ok": no hay nada que reintentar
   const ipHash = await getIpHash();
   if (!ipHash) return false;
   try {
