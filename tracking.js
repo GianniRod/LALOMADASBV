@@ -8,7 +8,7 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getFirestore, doc, setDoc, serverTimestamp
+  getFirestore, doc, setDoc, addDoc, collection, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import {
   getAnalytics, logEvent
@@ -102,6 +102,23 @@ async function record(collection, extra) {
   if (local) local.setItem(flagKey(collection), ipHash);
 }
 
+// Historial completo: guarda cada acceso/click (no solo el primero por IP),
+// con el hash de la IP para poder cruzar accesos con clicks
+async function log(name, extra) {
+  const ipHash = await getIpHash();
+  if (!ipHash) return;
+  try {
+    await addDoc(collection(db, name), {
+      ipHash,
+      ts: serverTimestamp(),
+      day: today(),
+      ...extra
+    });
+  } catch (e) {
+    console.warn('[stats]', e);
+  }
+}
+
 // ---- API PÚBLICA ----
 // Click en cualquier botón que lleva a WhatsApp
 window.lalomadaTrackClick = function (buttonId) {
@@ -110,7 +127,9 @@ window.lalomadaTrackClick = function (buttonId) {
       logEvent(analytics, 'click_whatsapp', { button: String(buttonId || 'desconocido') });
     } catch (e) {}
   }
-  record('clicks', { button: String(buttonId || 'desconocido').slice(0, 40) });
+  const button = String(buttonId || 'desconocido').slice(0, 40);
+  record('clicks', { button });
+  log('clickLog', { button });
 };
 
 // Visita al sitio
@@ -119,6 +138,12 @@ if (analytics) {
     logEvent(analytics, 'page_view');
   } catch (e) {}
 }
-record('visits', {
-  referrer: (document.referrer ? new URL(document.referrer).hostname : 'directo').slice(0, 100)
-});
+const referrer = (document.referrer ? new URL(document.referrer).hostname : 'directo').slice(0, 100);
+record('visits', { referrer });
+
+// Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
+const session = safeStorage('sessionStorage');
+if (!session || !session.getItem('lalomada_visitlog_ok')) {
+  if (session) session.setItem('lalomada_visitlog_ok', '1');
+  log('visitLog', { referrer });
+}
