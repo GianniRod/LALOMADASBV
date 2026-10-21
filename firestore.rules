@@ -2,6 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Quién puede borrar datos desde el panel (botones "Eliminar datos").
+    // POR AHORA CUALQUIERA. Cuando el panel tenga inicio de sesión, cambiar por:
+    //   return request.auth != null;
+    function canDelete() {
+      return true;
+    }
+
     // Ubicación aproximada (opcional): país, provincia, ciudad y coordenadas según la IP
     function validGeo(data) {
       return (!('country' in data) || (data.country is string && data.country.size() <= 2))
@@ -25,7 +32,8 @@ service cloud.firestore {
         && request.resource.data.referrer is string
         && request.resource.data.referrer.size() <= 100
         && validGeo(request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canDelete();
     }
 
     match /clicks/{ipHash} {
@@ -37,7 +45,8 @@ service cloud.firestore {
         && request.resource.data.day.size() == 10
         && request.resource.data.button is string
         && request.resource.data.button.size() <= 40;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canDelete();
     }
 
     // Historial completo: un documento por acceso / por click (ID automático).
@@ -54,7 +63,8 @@ service cloud.firestore {
         && request.resource.data.referrer is string
         && request.resource.data.referrer.size() <= 100
         && validGeo(request.resource.data);
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canDelete();
     }
 
     match /clickLog/{id} {
@@ -67,7 +77,8 @@ service cloud.firestore {
         && request.resource.data.day.size() == 10
         && request.resource.data.button is string
         && request.resource.data.button.size() <= 40;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if canDelete();
     }
 
     match /{document=**} {
