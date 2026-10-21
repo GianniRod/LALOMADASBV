@@ -233,6 +233,11 @@
         #map { width: 100%; height: 620px; display: block; }
         #map path { stroke: var(--card); stroke-width: .7; cursor: pointer; transition: fill .25s; vector-effect: non-scaling-stroke; }
         #map path.hov, #map path.sel { stroke: var(--text); stroke-width: 1.6; }
+        #map .inset-bg { fill: var(--bg); }
+        #map .inset-ring { fill: none; stroke: var(--text-light); stroke-width: 1.2; pointer-events: none; }
+        #map .inset-mark { fill: none; stroke: var(--text); stroke-width: 1.4; pointer-events: none; }
+        #map .inset-line { stroke: var(--text-light); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+        #map .inset-label { font-size: 13px; font-weight: 600; fill: var(--text); pointer-events: none; }
         .map-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: .85rem; color: var(--text-light); }
         .map-detail { background: var(--bg); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; min-height: 104px; }
         .map-detail .name { font-weight: 600; font-size: .9rem; }
@@ -680,11 +685,45 @@
             const features = mapFeatures();
             const fc = { type: 'FeatureCollection', features };
             const lon0 = map.geo.geoCentroid(fc)[0];
+            // En la vista país el SVG es más ancho: a la derecha va la ampliación de CABA
+            const width = map.view ? MAP_W : MAP_W + CABA_INSET.extra;
             const proj = map.geo.geoTransverseMercator().rotate([-lon0, 0]).fitExtent([[10, 10], [MAP_W - 10, MAP_H - 10]], fc);
             const path = map.geo.geoPath(proj);
-            $('map').innerHTML = features.map((f) =>
-                `<path d="${path(f)}" data-id="${f.properties.id}"></path>`).join('');
+            $('map').setAttribute('viewBox', `0 0 ${width} ${MAP_H}`);
+            $('map').innerHTML = '<g class="main">' + features.map((f) =>
+                `<path d="${path(f)}" data-id="${f.properties.id}"></path>`).join('') + '</g>'
+                + (map.view ? '' : cabaInset(proj));
             map.drawn = map.view;
+        }
+
+        // CABA es diminuta en el mapa del país: se marca con un círculo y se muestra
+        // ampliada a la derecha, con el borde de Buenos Aires alrededor como referencia
+        const CABA_INSET = { extra: 230, r: 102 };
+        function cabaInset(proj) {
+            const caba = map.provinces.find((p) => p.properties.id === '02');
+            const ba = map.provinces.find((p) => p.properties.id === '06');
+            const center = map.geo.geoCentroid(caba);
+            const [mx, my] = proj(center);
+            const { r } = CABA_INSET;
+            const cx = MAP_W + CABA_INSET.extra - r - 12, cy = Math.max(r + 10, Math.min(MAP_H - r - 30, my));
+            const inner = r * 0.62;
+            const insetProj = map.geo.geoTransverseMercator().rotate([-center[0], 0])
+                .fitExtent([[cx - inner, cy - inner], [cx + inner, cy + inner]], caba);
+            const p2 = map.geo.geoPath(insetProj);
+            // Línea guía entre el círculo chico y la ampliación
+            const dx = cx - mx, dy = cy - my, len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len, uy = dy / len, mark = 7;
+            return `
+                <defs><clipPath id="cabaClip"><circle cx="${cx}" cy="${cy}" r="${r}"></circle></clipPath></defs>
+                <line class="inset-line" x1="${mx + ux * mark}" y1="${my + uy * mark}" x2="${cx - ux * r}" y2="${cy - uy * r}"></line>
+                <circle class="inset-mark" cx="${mx}" cy="${my}" r="${mark}"></circle>
+                <circle class="inset-bg" cx="${cx}" cy="${cy}" r="${r}"></circle>
+                <g class="inset" clip-path="url(#cabaClip)">
+                    <path d="${p2(ba)}" data-id="06"></path>
+                    <path d="${p2(caba)}" data-id="02"></path>
+                </g>
+                <circle class="inset-ring" cx="${cx}" cy="${cy}" r="${r}"></circle>
+                <text class="inset-label" x="${cx}" y="${cy + r + 20}" text-anchor="middle">CABA</text>`;
         }
 
         function detailHtml(id) {
@@ -720,7 +759,7 @@
                 p.style.fill = mapColor(a ? a.n : 0, s.max);
                 p.classList.toggle('sel', p.dataset.id === map.selected);
             });
-            const sel = map.selected && document.querySelector(`#map path[data-id="${map.selected}"]`);
+            const sel = map.selected && document.querySelector(`#map .main path[data-id="${map.selected}"]`);
             if (sel) sel.parentNode.appendChild(sel);
 
             const provName = map.view && map.provinces.find((p) => p.properties.id === map.view).properties.nombre;
@@ -811,7 +850,9 @@
                 mapSvg.querySelectorAll('path.hov').forEach((x) => x.classList.remove('hov'));
                 map.hovered = p.dataset.id;
                 p.classList.add('hov');
-                p.parentNode.appendChild(p); // al frente, para que el borde se vea completo
+                // al frente, para que el borde se vea completo (en la ampliación de CABA no:
+                // Buenos Aires taparía a CABA)
+                if (p.parentNode.classList.contains('main')) p.parentNode.appendChild(p);
                 showDetail();
             }
             const a = map.stats.areas[p.dataset.id] || { n: 0, c: 0 };
