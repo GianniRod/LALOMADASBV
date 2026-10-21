@@ -337,6 +337,17 @@
             hour: '2-digit', minute: '2-digit'
         });
 
+        // Agrupa los orígenes: los registros viejos guardan el dominio (l.facebook.com,
+        // m.facebook.com, l.instagram.com…) y los nuevos "instagram", "facebook (pauta)", etc.
+        function sourceName(k) {
+            if (!k || k === 'directo') return 'Directo / sin referencia';
+            const paid = k.includes('(pauta)') ? ' (pauta)' : '';
+            if (k.includes('instagram')) return 'Instagram' + paid;
+            if (/facebook|^fb\.(com|me)$/.test(k)) return 'Facebook' + paid;
+            if (k.startsWith('meta')) return 'Facebook o Instagram' + paid;
+            return k;
+        }
+
         function escapeHtml(s) {
             return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
@@ -400,7 +411,7 @@
 
             renderChart(visits, clicks);
             renderRows($('byButton'), countBy(clicks, 'button'), (k) => BUTTON_NAMES[k] || k, false);
-            renderRows($('byReferrer'), countBy(visits, 'referrer'), (k) => k === 'directo' ? 'Directo / sin referencia' : k, true);
+            renderRows($('byReferrer'), countBy(visits.map((v) => ({ source: sourceName(v.referrer) })), 'source'), (k) => k, true);
 
             const recent = clicks.slice(0, 15);
             $('recentClicks').innerHTML = recent.length
@@ -484,7 +495,7 @@
         const displayDay = (d) => d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4);
         const shortId = (id) => (id || '').slice(0, 8);
         const buttonName = (k) => BUTTON_NAMES[k] || k || '—';
-        const referrerName = (k) => k === 'directo' ? 'Directo / sin referencia' : (k || '—');
+        const referrerName = sourceName;
         const withFmt = (value, numFmt) => ({ __fmt: numFmt, value });
 
         function daysBetween(from, to) {
@@ -626,13 +637,13 @@
                     : [['Sin clicks en el período', 0, null]]);
 
             r = sectionTitle(ws, r + 1, 'De dónde llegan');
-            const byReferrer = countBy(visits, 'referrer');
+            const byReferrer = countBy(visits.map((v) => ({ source: sourceName(v.referrer) })), 'source');
             r = writeTable(ws, r,
                 [{ header: 'Origen' }, { header: 'Visitantes', numFmt: '#,##0' }, { header: 'Hicieron click', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
                 byReferrer.length
                     ? byReferrer.map(([k, n]) => {
-                        const conv = visits.filter((v) => (v.referrer || '—') === k && clickedIds.has(v._id)).length;
-                        return [referrerName(k), n, conv, conv / n];
+                        const conv = visits.filter((v) => sourceName(v.referrer) === k && clickedIds.has(v._id)).length;
+                        return [k, n, conv, conv / n];
                     })
                     : [['Sin visitas en el período', 0, 0, null]]);
 
