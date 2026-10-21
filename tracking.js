@@ -85,6 +85,8 @@ const GEO_SERVICES = [
   'https://ipapi.co/json/'
 ];
 const GEO_TIMEOUT_MS = 3000;
+// Cambiar la versión invalida lo que haya quedado guardado en la sesión con un formato viejo
+const GEO_CACHE_KEY = 'lalomada_geo_v2';
 
 let geoPromise = null;
 function getGeo() {
@@ -93,7 +95,7 @@ function getGeo() {
   geoPromise = (async () => {
     const session = safeStorage('sessionStorage');
     try {
-      const cached = session && session.getItem('lalomada_geo');
+      const cached = session && session.getItem(GEO_CACHE_KEY);
       if (cached) return JSON.parse(cached);
     } catch (e) {}
 
@@ -110,9 +112,10 @@ function getGeo() {
         if (d.country_code) geo.country = String(d.country_code).slice(0, 2).toUpperCase();
         if (d.region) geo.region = String(d.region).slice(0, 60);
         if (d.city) geo.city = String(d.city).slice(0, 60);
-        // Coordenadas aproximadas (redondeadas a ~1 km) para ubicar el departamento en el mapa
+        // Coordenadas aproximadas (redondeadas a ~1 km) para ubicar el departamento en el mapa.
+        // Sin ciudad, las coordenadas son el centro de la provincia y ubicarían mal el departamento.
         const lat = parseFloat(d.latitude), lon = parseFloat(d.longitude);
-        if (isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+        if (geo.city && isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
           geo.lat = Math.round(lat * 100) / 100;
           geo.lon = Math.round(lon * 100) / 100;
         }
@@ -121,7 +124,7 @@ function getGeo() {
         if (geo.city) { best = geo; break; }
       } catch (e) { /* probar el siguiente servicio */ }
     }
-    if (best && session) session.setItem('lalomada_geo', JSON.stringify(best));
+    if (best && session) session.setItem(GEO_CACHE_KEY, JSON.stringify(best));
     return best || {}; // sin ubicación igual se registra la visita
   })();
 
@@ -158,7 +161,7 @@ async function record(collection, extra) {
 // con el hash de la IP para poder cruzar accesos con clicks
 async function log(name, extra) {
   const ipHash = await getIpHash();
-  if (!ipHash) return;
+  if (!ipHash) return false;
   try {
     await addDoc(collection(db, name), {
       ipHash,
@@ -166,8 +169,10 @@ async function log(name, extra) {
       day: today(),
       ...extra
     });
+    return true;
   } catch (e) {
     console.warn('[stats]', e);
+    return false;
   }
 }
 
@@ -224,7 +229,8 @@ getGeo().then((geo) => {
   // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
   const session = safeStorage('sessionStorage');
   if (!session || !session.getItem('lalomada_visitlog_ok')) {
-    if (session) session.setItem('lalomada_visitlog_ok', '1');
-    log('visitLog', { referrer, ...geo });
+    log('visitLog', { referrer, ...geo }).then((ok) => {
+      if (ok && session) session.setItem('lalomada_visitlog_ok', '1');
+    });
   }
 });
