@@ -10,10 +10,20 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getFirestore, doc, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {
+  getAnalytics, logEvent
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js';
 import { firebaseConfig, STATS_TIMEZONE } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+
+let analytics = null;
+try {
+  analytics = getAnalytics(app);
+} catch (e) {
+  // En caso de bloqueadores o entornos sin soporte de Analytics
+}
 
 const IP_SALT = 'lalomada-puiggari';
 const IP_SERVICES = [
@@ -95,10 +105,20 @@ async function record(collection, extra) {
 // ---- API PÚBLICA ----
 // Click en cualquier botón que lleva a WhatsApp
 window.lalomadaTrackClick = function (buttonId) {
+  if (analytics) {
+    try {
+      logEvent(analytics, 'click_whatsapp', { button: String(buttonId || 'desconocido') });
+    } catch (e) {}
+  }
   record('clicks', { button: String(buttonId || 'desconocido').slice(0, 40) });
 };
 
 // Visita al sitio
+if (analytics) {
+  try {
+    logEvent(analytics, 'page_view');
+  } catch (e) {}
+}
 record('visits', {
   referrer: (document.referrer ? new URL(document.referrer).hostname : 'directo').slice(0, 100)
 });
