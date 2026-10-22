@@ -280,7 +280,16 @@
         .ip-detail table { font-size: .8rem; }
         .ip-detail th { padding: 6px 10px; }
         .ip-detail td { padding: 6px 10px; border-bottom-color: var(--border); }
-        .ip-detail .wa { color: var(--accent); font-weight: 500; }
+        .wa { color: var(--accent); font-weight: 500; }
+
+        /* ---- Todos los accesos ---- */
+        .list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+        .list-tools select {
+            font: inherit; font-size: .85rem; color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: var(--card);
+            max-width: 100%;
+        }
+        .list-more { text-align: center; margin-top: 12px; }
 
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
@@ -473,6 +482,27 @@
                 </table>
             </div>
             <p class="section-foot">Tocá un visitante para ver cada acceso con su hora, el medio por el que llegó y si entró a WhatsApp. El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
+        </section>
+
+        <section class="card repeat">
+            <div class="section-head">
+                <h2>Todos los accesos</h2>
+                <p id="allSub">Cada acceso a la web, del más nuevo al más viejo</p>
+            </div>
+            <div class="list-tools">
+                <select id="allFilter" aria-label="Filtrar por origen"><option value="">Todos los orígenes</option></select>
+            </div>
+            <div class="table-scroll">
+                <table class="ip-table">
+                    <thead><tr>
+                        <th>Fecha y hora</th><th>Medio</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                        <th class="num">Visita</th><th>¿Entró a WhatsApp?</th><th>ID visitante</th><th>Parámetros del link</th>
+                    </tr></thead>
+                    <tbody id="allRows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
+                </table>
+            </div>
+            <div class="list-more"><button class="btn-ghost" id="allMore" hidden>Mostrar más</button></div>
+            <p class="section-foot">"Visita": qué número de acceso es para esa IP (por ejemplo, 2 de 5). Un acceso entró a WhatsApp si desde esa IP se tocó un botón antes del siguiente acceso.</p>
         </section>
 
         <section class="card export danger-zone">
@@ -689,7 +719,7 @@
         function repeatDetail(list, hasClicks) {
             return `<tr class="ip-detail"><td colspan="9">
                 <table>
-                    <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>¿Entró a WhatsApp?</th></tr></thead>
+                    <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>Parámetros del link</th><th>¿Entró a WhatsApp?</th></tr></thead>
                     <tbody>${list.map((a, i) => {
                         const place = [a.city, (a.country || a.region) ? provinceName(a) : null].filter(Boolean).join(' · ') || '—';
                         const wa = !hasClicks ? '—'
@@ -701,6 +731,7 @@
                             <td>${eventWhen(a)}</td>
                             <td>${escapeHtml(sourceName(a.referrer))}</td>
                             <td>${escapeHtml(place)}</td>
+                            <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
                             <td>${wa}</td>
                         </tr>`;
                     }).join('')}</tbody>
@@ -712,11 +743,74 @@
         const repeatOpen = new Set();
         let lastRepeat = null;
 
+        // Celdas de ciudad, provincia y país
+        function locCells(loc) {
+            const located = loc.country || loc.region;
+            const province = !located ? '—' : (loc.country && loc.country !== 'AR' ? loc.region || '—' : provinceName(loc));
+            return `<td>${escapeHtml(loc.city || '—')}</td>
+                <td>${escapeHtml(province)}</td>
+                <td>${escapeHtml(countryName(loc.country))}</td>`;
+        }
+
+        // ---- Todos los accesos (como la hoja del Excel, filtrable por origen) ----
+        const ALL_PAGE = 50;
+        const allView = { accesses: null, hasClicks: false, filter: '', limit: ALL_PAGE, options: '' };
+
+        function renderAllAccesses() {
+            const { accesses, hasClicks } = allView;
+            if (!accesses) return;
+            const totals = {}, seen = {};
+            accesses.forEach((a) => { totals[a.ip] = (totals[a.ip] || 0) + 1; });
+
+            const sources = countBy(accesses.map((a) => ({ s: sourceName(a.referrer) })), 's');
+            if (allView.filter && !sources.some(([k]) => k === allView.filter)) allView.filter = '';
+            const options = `<option value="">Todos los orígenes (${fmt.format(accesses.length)})</option>`
+                + sources.map(([k, n]) => `<option value="${escapeHtml(k)}">${escapeHtml(k)} (${fmt.format(n)})</option>`).join('');
+            // Solo se rearma si cambió, para no cerrar el desplegable con cada actualización en vivo
+            if (options !== allView.options) { $('allFilter').innerHTML = allView.options = options; }
+            $('allFilter').value = allView.filter;
+
+            const rows = accesses.map((a) => ({ a, nth: (seen[a.ip] = (seen[a.ip] || 0) + 1) }))
+                .filter(({ a }) => !allView.filter || sourceName(a.referrer) === allView.filter)
+                .reverse();
+            const shown = rows.slice(0, allView.limit);
+
+            $('allSub').textContent = `${plural(rows.length, 'acceso')} · del más nuevo al más viejo`;
+            $('allRows').innerHTML = shown.length
+                ? shown.map(({ a, nth }) => {
+                    const wa = !hasClicks ? '—'
+                        : a.clicks.length ? `<span class="wa">Sí · ${eventWhen(a.clicks[0])}${a.clicks.length > 1 ? ` (${a.clicks.length} clicks)` : ''}</span>` : 'No';
+                    return `<tr>
+                        <td>${eventWhen(a)}</td>
+                        <td>${escapeHtml(sourceName(a.referrer))}</td>
+                        ${locCells(a)}
+                        <td class="num">${nth} de ${totals[a.ip]}</td>
+                        <td>${wa}</td>
+                        <td class="ip-id">${escapeHtml(shortId(a.ip))}</td>
+                        <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="9" class="empty">Sin accesos todavía.</td></tr>';
+
+            const left = rows.length - shown.length;
+            $('allMore').hidden = left <= 0;
+            $('allMore').textContent = `Mostrar más (quedan ${fmt.format(left)})`;
+        }
+
+        $('allFilter').addEventListener('change', () => {
+            allView.filter = $('allFilter').value;
+            allView.limit = ALL_PAGE;
+            renderAllAccesses();
+        });
+        $('allMore').addEventListener('click', () => {
+            allView.limit += ALL_PAGE;
+            renderAllAccesses();
+        });
+
         // IPs con más de un acceso: cuántas veces entraron, desde dónde y cuándo
         function renderRepeat(accesses, allClicks) {
             if (!accesses) return;
             lastRepeat = [accesses, allClicks];
-            if (allClicks) matchClicks(accesses, allClicks);
             const byIp = new Map();
             accesses.forEach((a) => {
                 if (!byIp.has(a.ip)) byIp.set(a.ip, []);
@@ -738,15 +832,11 @@
                 : 'IPs con más de 1 acceso a la web';
             $('repeatRows').innerHTML = rows.length
                 ? rows.map(({ ip, list, loc }) => {
-                    const located = loc.country || loc.region;
-                    const province = !located ? '—' : (loc.country && loc.country !== 'AR' ? loc.region || '—' : provinceName(loc));
                     const sources = [...new Set(list.map((a) => sourceName(a.referrer)))].join(', ');
                     const open = repeatOpen.has(ip);
                     return `<tr class="ip-row${open ? ' open' : ''}" data-ip="${escapeHtml(ip)}" title="Ver cada acceso">
                         <td class="ip-id"><span class="chev">${open ? '▾' : '▸'}</span>${escapeHtml(shortId(ip))}</td>
-                        <td>${escapeHtml(loc.city || '—')}</td>
-                        <td>${escapeHtml(province)}</td>
-                        <td>${escapeHtml(countryName(loc.country))}</td>
+                        ${locCells(loc)}
                         <td class="num"><b>${fmt.format(list.length)}</b></td>
                         <td class="num">${allClicks ? fmt.format(clicksByIp[ip] || 0) : '—'}</td>
                         <td>${escapeHtml(sources)}</td>
@@ -813,8 +903,14 @@
                 $('kAccess').textContent = fmt.format(accesses.length);
                 $('kAccessSub').textContent = `incluye repetidos · ${fmt.format(accesses.filter((a) => a.day === today).length)} hoy`;
             }
+            if (accesses && allClicks) matchClicks(accesses, allClicks);
             renderSocial(visits, accesses);
             renderRepeat(accesses, allClicks);
+            if (accesses) {
+                allView.accesses = accesses;
+                allView.hasClicks = !!allClicks;
+                renderAllAccesses();
+            }
 
             renderChart(visits, clicks);
             renderRows($('byButton'), countBy(clicks, 'button'), (k) => BUTTON_NAMES[k] || k, false);
