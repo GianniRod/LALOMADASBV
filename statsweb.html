@@ -307,8 +307,9 @@
         .btn-sm { font-size: .75rem; padding: 3px 10px; }
         .btn-sm:disabled { opacity: .5; cursor: default; }
         .hidden-box { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
-        .hidden-box h2 { margin-bottom: 2px; }
-        .hidden-box .section-foot { margin: 0 0 10px; }
+        .hidden-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .hidden-box h2 { margin-bottom: 0; }
+        .hidden-box .section-foot { margin: 12px 0 10px; }
 
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
@@ -515,7 +516,11 @@
                 </table>
             </div>
             <div class="hidden-box" id="hiddenBox" hidden>
-                <h2 id="hiddenTitle">Visitantes ocultos</h2>
+                <div class="hidden-head">
+                    <h2 id="hiddenTitle">Visitantes ocultos</h2>
+                    <button class="btn-ghost" id="hiddenToggle" aria-expanded="false" aria-controls="hiddenList">Ver lista</button>
+                </div>
+                <div id="hiddenList" hidden>
                 <p class="section-foot">No se cuentan en ninguna parte del panel (indicadores, gráfico, mapa, listas) ni en el Excel. Los datos no se borran: con "Mostrar de nuevo" vuelven a contarse.</p>
                 <div class="table-scroll">
                     <table class="ip-table">
@@ -525,6 +530,7 @@
                         </tr></thead>
                         <tbody id="hiddenRows"></tbody>
                     </table>
+                </div>
                 </div>
             </div>
             <p class="section-foot">Tocá un visitante para ver cada acceso con su hora, el medio por el que llegó y si entró a WhatsApp. El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
@@ -930,6 +936,14 @@
                     <td><button class="btn-ghost btn-sm unhide-btn" data-ip="${escapeHtml(ip)}">Mostrar de nuevo</button></td>
                 </tr>`).join('');
         }
+
+        // La lista de ocultos arranca cerrada; se despliega con el botón
+        $('hiddenToggle').addEventListener('click', () => {
+            const open = $('hiddenList').hidden;
+            $('hiddenList').hidden = !open;
+            $('hiddenToggle').textContent = open ? 'Cerrar lista' : 'Ver lista';
+            $('hiddenToggle').setAttribute('aria-expanded', String(open));
+        });
 
         $('hiddenRows').addEventListener('click', (e) => {
             const btn = e.target.closest('.unhide-btn');
