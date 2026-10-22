@@ -503,7 +503,6 @@
                     <label><input type="radio" name="repeatMode" value="repeat" checked>Más de 1 acceso</label>
                     <label><input type="radio" name="repeatMode" value="all">Todos los visitantes</label>
                 </div>
-                <button class="btn-ghost" id="hideMine" hidden>Ocultar mi IP actual</button>
             </div>
             <div class="table-scroll">
                 <table class="ip-table">
@@ -912,7 +911,6 @@
 
         function renderHidden() {
             if (!raw.hidden || !raw.visits) return;
-            $('hideMine').hidden = !ownIp || raw.hidden.has(ownIp);
             $('hiddenBox').hidden = !raw.hidden.size;
             if (!raw.hidden.size) return;
             const log = raw.visitLog || [];
@@ -937,8 +935,6 @@
             const btn = e.target.closest('.unhide-btn');
             if (btn) { btn.disabled = true; unhideIp(btn.dataset.ip); }
         });
-        $('hideMine').addEventListener('click', () => { if (ownIp) hideIp(ownIp); });
-
         const repeatMode = () => document.querySelector('input[name="repeatMode"]:checked').value;
         document.querySelectorAll('input[name="repeatMode"]').forEach((input) => {
             input.addEventListener('change', () => { if (lastRepeat) renderRepeat(...lastRepeat); });
