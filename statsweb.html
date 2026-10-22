@@ -454,7 +454,7 @@
         <section class="card export">
             <div class="export-head">
                 <h2>Descargar Excel</h2>
-                <p>Incluye resumen, detalle por día y la lista de accesos y clicks con su hora.</p>
+                <p>Resumen (con Instagram/Facebook, provincias y ciudades), por día, prueba A/B, visitantes, accesos y clicks con su hora, y ocultos.</p>
             </div>
             <div class="export-form">
                 <div class="seg" role="radiogroup" aria-label="Período">
@@ -818,6 +818,38 @@
             return se > 0 && Math.abs(a.rate - b.rate) / se >= 1.96;
         }
 
+        // Ganador (si la diferencia es significativa) y texto del veredicto; lo usan el panel y el Excel
+        function abVerdict(s) {
+            const enough = s.A.n >= AB_MIN && s.B.n >= AB_MIN;
+            const sig = enough && abSignificant(s.A, s.B);
+            const winner = sig ? (s.A.rate > s.B.rate ? 'A' : 'B') : null;
+            let text = '';
+            if (!s.A.n && !s.B.n) text = '';
+            else if (!enough) text = `Todavía hay pocos datos para comparar: hacen falta al menos ${AB_MIN} visitantes en cada diseño.`;
+            else if (!sig) text = 'Por ahora la diferencia no es concluyente: puede deberse al azar. Conviene esperar más visitantes.';
+            else {
+                const lo = winner === 'A' ? s.B : s.A, hi = s[winner];
+                const lift = lo.rate ? ((hi.rate / lo.rate - 1) * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '% más' : 'más';
+                text = `${AB_NAMES[winner]} convierte ${lift} que la otra, y la diferencia es significativa (95% de confianza).`;
+            }
+            return { winner, text };
+        }
+
+        // Por origen, por visitante: cada IP cuenta en el origen de su primer acceso en ese diseño.
+        // Devuelve filas [origen, visitantes A, convirtieron A, visitantes B, convirtieron B]
+        function abBySource(accesses, s) {
+            const firstSource = { A: new Map(), B: new Map() };
+            accesses.forEach((a) => {
+                if (firstSource[a.variant] && !firstSource[a.variant].has(a.ip)) firstSource[a.variant].set(a.ip, sourceName(a.referrer));
+            });
+            const sources = countBy([...firstSource.A.values(), ...firstSource.B.values()].map((k) => ({ s: k })), 's');
+            const count = (v, k) => {
+                const ips = [...firstSource[v]].filter(([, src]) => src === k).map(([ip]) => ip);
+                return [ips.length, ips.filter((ip) => s[v].clickedIps.has(ip)).length];
+            };
+            return sources.map(([k]) => [k, ...count('A', k), ...count('B', k)]);
+        }
+
         function renderAB(accesses, allClicks) {
             if (!accesses) return;
             const s = { A: abStats(accesses, allClicks, 'A'), B: abStats(accesses, allClicks, 'B') };
@@ -826,9 +858,7 @@
                 ? `Desde ${eventWhen(started)} · cada visitante ve siempre el mismo diseño (se guarda en su navegador)`
                 : 'Todavía no hay accesos con diseño asignado. Empieza a contar cuando se publique la prueba.';
 
-            const enough = s.A.n >= AB_MIN && s.B.n >= AB_MIN;
-            const sig = enough && abSignificant(s.A, s.B);
-            const winner = sig ? (s.A.rate > s.B.rate ? 'A' : 'B') : null;
+            const { winner, text } = abVerdict(s);
 
             $('abGrid').innerHTML = ['A', 'B'].map((v) => {
                 const x = s[v];
@@ -840,30 +870,12 @@
                 </div>`;
             }).join('');
 
-            let verdict = '';
-            if (!s.A.n && !s.B.n) verdict = '';
-            else if (!enough) verdict = `Todavía hay pocos datos para comparar: hacen falta al menos ${AB_MIN} visitantes en cada diseño.`;
-            else if (!sig) verdict = 'Por ahora la diferencia no es concluyente: puede deberse al azar. Conviene esperar más visitantes.';
-            else {
-                const lo = winner === 'A' ? s.B : s.A, hi = s[winner];
-                const lift = lo.rate ? ((hi.rate / lo.rate - 1) * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '% más' : 'más';
-                verdict = `${AB_NAMES[winner]} convierte ${lift} que la otra, y la diferencia es significativa (95% de confianza).`;
-            }
-            $('abVerdict').textContent = verdict;
+            $('abVerdict').textContent = text;
 
-            // Por origen, también por visitante: cada IP cuenta en el origen de su primer acceso en ese diseño
-            const firstSource = { A: new Map(), B: new Map() };
-            accesses.forEach((a) => {
-                if (firstSource[a.variant] && !firstSource[a.variant].has(a.ip)) firstSource[a.variant].set(a.ip, sourceName(a.referrer));
-            });
-            const sources = countBy([...firstSource.A.values(), ...firstSource.B.values()].map((k) => ({ s: k })), 's');
-            const cell = (v, k) => {
-                const ips = [...firstSource[v]].filter(([, src]) => src === k).map(([ip]) => ip);
-                const conv = ips.filter((ip) => s[v].clickedIps.has(ip)).length;
-                return `<td class="num">${fmt.format(ips.length)}</td><td class="num">${ips.length ? pct(conv, ips.length) : '—'}</td>`;
-            };
-            $('abRows').innerHTML = sources.length
-                ? sources.map(([k]) => `<tr><td>${escapeHtml(k)}</td>${cell('A', k)}${cell('B', k)}</tr>`).join('')
+            const cell = (n, conv) => `<td class="num">${fmt.format(n)}</td><td class="num">${n ? pct(conv, n) : '—'}</td>`;
+            const rows = abBySource(accesses, s);
+            $('abRows').innerHTML = rows.length
+                ? rows.map(([k, nA, cA, nB, cB]) => `<tr><td>${escapeHtml(k)}</td>${cell(nA, cA)}${cell(nB, cB)}</tr>`).join('')
                 : '<tr><td colspan="5" class="empty">Sin datos todavía.</td></tr>';
         }
 
@@ -1619,7 +1631,7 @@
                 cell.value = c.header;
                 cell.font = { bold: true, color: { argb: XL.white } };
                 cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: XL.accent } };
-                cell.alignment = { vertical: 'middle', horizontal: i === 0 ? 'left' : 'right' };
+                cell.alignment = { vertical: 'middle', horizontal: c.align || (i === 0 ? 'left' : 'right') };
             });
             header.height = 20;
 
@@ -1629,7 +1641,7 @@
                     const cell = row.getCell(i + 1);
                     if (v && v.__fmt) { cell.value = v.value; cell.numFmt = v.__fmt; }
                     else { cell.value = v; if (cols[i].numFmt) cell.numFmt = cols[i].numFmt; }
-                    cell.alignment = { horizontal: i === 0 ? 'left' : 'right' };
+                    cell.alignment = { horizontal: cols[i].align || (i === 0 ? 'left' : 'right') };
                     cell.border = { bottom: { style: 'thin', color: { argb: XL.border } } };
                 });
             });
@@ -1715,13 +1727,48 @@
             const activeDays = days.filter((d) => vByDay[d] || cByDay[d]).length;
             const bestDay = days.reduce((b, d) => ((vByDay[d] || 0) > (vByDay[b] || 0) ? d : b), days[0]);
 
+            // ---- Datos por visitante (IP) del período ----
+            const byIp = new Map();
+            accesses.forEach((a) => {
+                if (!byIp.has(a.ip)) byIp.set(a.ip, []);
+                byIp.get(a.ip).push(a);
+            });
+            const clicksByIp = {};
+            allClicks.forEach((c) => { clicksByIp[c.ip] = (clicksByIp[c.ip] || 0) + 1; });
+            const convertedIps = new Set([...byIp.keys()].filter((ip) => clicksByIp[ip]));
+            const visitById = new Map(state.visits.map((v) => [v._id, v]));
+            const lastLoc = (list, ip) => [...list].reverse().find((a) => a.country || a.region) || visitById.get(ip) || {};
+            // Ciudad, provincia y país en texto (igual que en el panel)
+            const locText = (loc) => {
+                const located = loc.country || loc.region;
+                const province = !located ? '—' : (loc.country && loc.country !== 'AR' ? loc.region || '—' : provinceName(loc));
+                return [loc.city || '—', province, countryName(loc.country)];
+            };
+            const rate = (c, n) => n ? c / n : null;
+            const when = (e) => excelDateTime(e.ts) || excelDay(e.day);
+            const L = { align: 'left' };
+            const NUM = { numFmt: '#,##0' };
+            const PCT = { numFmt: '0.0%' };
+            const DT = { numFmt: 'dd/mm/yyyy hh:mm' };
+            const note = (wsx, row, lines) => lines.forEach((t, i) => {
+                const cell = wsx.getCell(row + i, 1);
+                cell.value = t;
+                cell.font = { italic: true, size: 9, color: { argb: XL.muted } };
+            });
+            const fillRow = (wsx, row, argb) => wsx.getRow(row).eachCell({ includeEmpty: true }, (cell) => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
+            });
+            const ab = { A: abStats(accesses, allClicks, 'A'), B: abStats(accesses, allClicks, 'B') };
+            const abv = abVerdict(ab);
+            const hasAB = ab.A.accesses + ab.B.accesses > 0;
+
             const wb = new ExcelJS.Workbook();
             wb.creator = 'La Lomada — Panel de estadísticas';
             wb.created = new Date();
 
             // ---- Hoja 1: Resumen ----
             const ws = wb.addWorksheet('Resumen', { views: [{ showGridLines: false }] });
-            ws.columns = [{ width: 40 }, { width: 16 }, { width: 16 }, { width: 14 }];
+            ws.columns = [{ width: 44 }, { width: 16 }, { width: 18 }, { width: 20 }, { width: 14 }, { width: 14 }];
             ws.getCell('A1').value = 'La Lomada de Puiggari — Estadísticas';
             ws.getCell('A1').font = { size: 16, bold: true, color: { argb: XL.accent } };
             ws.getCell('A2').value = 'Período: ' + label;
@@ -1729,133 +1776,281 @@
             ws.getCell('A2').font = ws.getCell('A3').font = { color: { argb: XL.muted } };
 
             let r = sectionTitle(ws, 5, 'Indicadores');
-            r = writeTable(ws, r, [{ header: 'Indicador' }, { header: 'Valor', numFmt: '#,##0' }], [
-                ['Visitantes únicos', visits.length],
-                ['Clicks a WhatsApp', clicks.length],
-                ['Conversión (clicks ÷ visitantes)', withFmt(visits.length ? clicks.length / visits.length : null, '0.0%')],
-                ['Accesos totales (incluye repetidos)', accesses.length],
-                ['Clicks totales (incluye repetidos)', allClicks.length],
+            r = writeTable(ws, r, [{ header: 'Indicador' }, { header: 'Valor', ...NUM }], [
+                ['Visitantes únicos (nuevos en el período)', visits.length],
+                ['Visitantes con algún acceso en el período', byIp.size],
+                ['Accesos a la web (incluye repetidos)', accesses.length],
+                ['Clicks a WhatsApp (1 por IP)', clicks.length],
+                ['Clicks a WhatsApp totales (incluye repetidos)', allClicks.length],
+                ['Conversión (clicks ÷ visitantes únicos)', withFmt(rate(clicks.length, visits.length), '0.0%')],
+                ['Visitantes que entraron a WhatsApp', convertedIps.size],
                 ['Accesos que entraron a WhatsApp', accessesWithClick],
+                ['Visitantes que volvieron (más de 1 acceso)', [...byIp.values()].filter((l) => l.length > 1).length],
                 ['Días del período', days.length],
                 ['Días con actividad', activeDays],
                 ['Promedio de visitantes por día', withFmt(visits.length / days.length, '0.0')],
+                ['Promedio de accesos por día', withFmt(accesses.length / days.length, '0.0')],
                 ['Promedio de clicks por día', withFmt(clicks.length / days.length, '0.0')],
                 ['Día con más visitantes', vByDay[bestDay] ? `${displayDay(bestDay)} (${vByDay[bestDay]})` : '—']
             ]);
 
+            r = sectionTitle(ws, r + 1, 'Instagram y Facebook');
+            const socialRows = [...SOCIAL_SOURCES.map((s) => s.key), 'Facebook o Instagram', 'Facebook o Instagram (pauta)'].map((k) => {
+                const v = visits.filter((x) => sourceName(x.referrer) === k);
+                const conv = v.filter((x) => clickedIds.has(x._id)).length;
+                const n = accesses.filter((a) => sourceName(a.referrer) === k).length;
+                return [k === 'Facebook o Instagram' ? k + ' (sin distinguir)' : k, n, v.length, conv, rate(conv, v.length)];
+            }).filter((row, i) => i < SOCIAL_SOURCES.length || row[1] || row[2]);
+            r = writeTable(ws, r,
+                [{ header: 'Origen' }, { header: 'Ingresos (accesos)', ...NUM }, { header: 'Visitantes únicos', ...NUM }, { header: 'Entraron a WhatsApp', ...NUM }, { header: 'Conversión', ...PCT }],
+                socialRows);
+
+            if (hasAB) {
+                r = sectionTitle(ws, r + 1, 'Prueba A/B (detalle en la hoja "Prueba A-B")');
+                r = writeTable(ws, r,
+                    [{ header: 'Diseño' }, { header: 'Visitantes', ...NUM }, { header: 'Entraron a WhatsApp', ...NUM }, { header: 'Conversión por visitante', ...PCT },
+                        { header: 'Accesos', ...NUM }, { header: 'Conversión por acceso', ...PCT }],
+                    ['A', 'B'].map((v) => [AB_NAMES[v] + (abv.winner === v ? ' (gana)' : ''), ab[v].n, ab[v].conv, rate(ab[v].conv, ab[v].n), ab[v].accesses, rate(ab[v].accConv, ab[v].accesses)]));
+                if (abv.text) { ws.getCell(r, 1).value = abv.text; ws.getCell(r, 1).font = { bold: true, size: 10 }; r++; }
+            }
+
             r = sectionTitle(ws, r + 1, 'Clicks por botón');
             const byButton = countBy(clicks, 'button');
             r = writeTable(ws, r,
-                [{ header: 'Botón' }, { header: 'Clicks', numFmt: '#,##0' }, { header: '% del total', numFmt: '0.0%' }],
+                [{ header: 'Botón' }, { header: 'Clicks (1 por IP)', ...NUM }, { header: '% del total', ...PCT }, { header: 'Clicks totales', ...NUM }],
                 byButton.length
-                    ? byButton.map(([k, n]) => [buttonName(k), n, n / clicks.length])
-                    : [['Sin clicks en el período', 0, null]]);
+                    ? byButton.map(([k, n]) => [buttonName(k), n, n / clicks.length, allClicks.filter((c) => c.button === k).length])
+                    : [['Sin clicks en el período', 0, null, 0]]);
 
             r = sectionTitle(ws, r + 1, 'De dónde llegan');
             const byReferrer = countBy(visits.map((v) => ({ source: sourceName(v.referrer) })), 'source');
             r = writeTable(ws, r,
-                [{ header: 'Origen' }, { header: 'Visitantes', numFmt: '#,##0' }, { header: 'Hicieron click', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
+                [{ header: 'Origen' }, { header: 'Visitantes', ...NUM }, { header: 'Hicieron click', ...NUM }, { header: 'Conversión', ...PCT }, { header: 'Accesos', ...NUM }],
                 byReferrer.length
                     ? byReferrer.map(([k, n]) => {
                         const conv = visits.filter((v) => sourceName(v.referrer) === k && clickedIds.has(v._id)).length;
-                        return [k, n, conv, conv / n];
+                        return [k, n, conv, conv / n, accesses.filter((a) => sourceName(a.referrer) === k).length];
                     })
-                    : [['Sin visitas en el período', 0, 0, null]]);
+                    : [['Sin visitas en el período', 0, 0, null, 0]]);
+
+            // Provincia y ciudad por visitante (ubicación de su último acceso), con los accesos aparte
+            const visitorLoc = [...byIp].map(([ip, list]) => ({ ip, loc: lastLoc(list, ip), n: list.length }));
+            const groupLoc = (keyFn) => {
+                const g = new Map();
+                visitorLoc.forEach((v) => {
+                    const k = keyFn(v.loc);
+                    if (!k) return;
+                    const x = g.get(k) || { n: 0, conv: 0, acc: 0 };
+                    x.n++; x.acc += v.n; if (convertedIps.has(v.ip)) x.conv++;
+                    g.set(k, x);
+                });
+                return [...g].sort((a, b) => b[1].n - a[1].n).map(([k, x]) => [k, x.n, x.conv, rate(x.conv, x.n), x.acc]);
+            };
+            const locCols = (title) => [{ header: title }, { header: 'Visitantes', ...NUM }, { header: 'Entraron a WhatsApp', ...NUM }, { header: 'Conversión', ...PCT }, { header: 'Accesos', ...NUM }];
 
             r = sectionTitle(ws, r + 1, 'Por provincia');
-            const byProvince = countBy(accesses.map((a) => ({ p: provinceName(a) })), 'p');
-            r = writeTable(ws, r,
-                [{ header: 'Provincia / país' }, { header: 'Accesos', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
-                byProvince.length
-                    ? byProvince.map(([k, n]) => {
-                        const conv = accesses.filter((a) => provinceName(a) === k && a.clicks.length).length;
-                        return [k, n, conv, conv / n];
-                    })
-                    : [['Sin accesos en el período', 0, 0, null]]);
+            const provRows = groupLoc((loc) => provinceName(loc));
+            r = writeTable(ws, r, locCols('Provincia / país'), provRows.length ? provRows : [['Sin accesos en el período', 0, 0, null, 0]]);
 
-            r = sectionTitle(ws, r + 1, 'Prueba A/B');
-            r = writeTable(ws, r,
-                [{ header: 'Diseño' }, { header: 'Visitantes', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión por visitante', numFmt: '0.0%' },
-                    { header: 'Accesos', numFmt: '#,##0' }, { header: 'Conversión por acceso', numFmt: '0.0%' }],
-                ['A', 'B'].map((v) => {
-                    const x = abStats(accesses, allClicks, v);
-                    return [AB_NAMES[v], x.n, x.conv, x.n ? x.rate : null, x.accesses, x.accesses ? x.accConv / x.accesses : null];
-                }));
+            r = sectionTitle(ws, r + 1, 'Por ciudad');
+            const cityRows = groupLoc((loc) => loc.city ? `${loc.city} · ${provinceName(loc)}` : null);
+            r = writeTable(ws, r, locCols('Ciudad'), cityRows.length ? cityRows : [['Sin ciudades identificadas', 0, 0, null, 0]]);
 
-            const notes = [
-                'Cada IP se cuenta una sola vez: un visitante o un click por IP en todo el histórico.',
-                '"Hicieron click": visitantes de ese origen que en algún momento tocaron un botón de WhatsApp.',
-                'Hoja "Accesos y clicks": cada acceso (1 por sesión del navegador) y cada click, en orden de hora.',
+            note(ws, r + 1, [
+                'Visitantes únicos y clicks "1 por IP": cada IP cuenta una sola vez en todo el histórico.',
+                'Accesos: cada sesión del navegador (si alguien entra 5 veces, son 5 accesos).',
+                '"Hicieron click" / "Entraron a WhatsApp": visitantes que en algún momento tocaron un botón de WhatsApp.',
                 'Un acceso "entró a WhatsApp" si desde esa misma IP se tocó un botón antes del siguiente acceso.',
                 '"ID visitante": código anónimo derivado de la IP; las filas con el mismo ID son la misma IP.',
-                'Ubicación aproximada según la IP. Con datos móviles suele figurar Buenos Aires aunque la persona esté en otra provincia.'
-            ];
-            notes.forEach((t, i) => {
-                const cell = ws.getCell(r + 1 + i, 1);
-                cell.value = t;
-                cell.font = { italic: true, size: 9, color: { argb: XL.muted } };
-            });
+                'Ubicación aproximada según la IP. Con datos móviles suele figurar Buenos Aires aunque la persona esté en otra provincia.',
+                raw.hidden && raw.hidden.size ? `No incluye a los ${raw.hidden.size} visitante(s) ocultos desde el panel (ver hoja "Ocultos").` : ''
+            ].filter(Boolean));
 
             // ---- Hoja 2: Por día ----
+            const accByDay = Object.fromEntries(countBy(accesses, 'day'));
+            const allClicksByDay = Object.fromEntries(countBy(allClicks, 'day'));
+            const accByDayVar = (d, v) => accesses.filter((a) => a.day === d && a.variant === v).length;
+            const dayCols = [
+                { header: 'Fecha', numFmt: 'dd/mm/yyyy', width: 13 },
+                { header: 'Día', width: 12, align: 'left' },
+                { header: 'Visitantes nuevos', ...NUM, width: 18 },
+                { header: 'Accesos', ...NUM, width: 11 },
+                { header: 'Clicks a WhatsApp (1 por IP)', ...NUM, width: 26 },
+                { header: 'Clicks totales', ...NUM, width: 14 },
+                { header: 'Conversión', ...PCT, width: 12 }
+            ];
+            if (hasAB) dayCols.push({ header: 'Accesos A', ...NUM, width: 11 }, { header: 'Accesos B', ...NUM, width: 11 });
             const dayRows = days.map((d) => {
                 const nv = vByDay[d] || 0, nc = cByDay[d] || 0;
-                return [excelDay(d), weekdayFmt.format(excelDay(d)), nv, nc, nv ? nc / nv : null];
+                const row = [excelDay(d), weekdayFmt.format(excelDay(d)), nv, accByDay[d] || 0, nc, allClicksByDay[d] || 0, nv ? nc / nv : null];
+                if (hasAB) row.push(accByDayVar(d, 'A'), accByDayVar(d, 'B'));
+                return row;
             });
-            const wsDay = dataSheet(wb, 'Por día', [
-                { header: 'Fecha', numFmt: 'dd/mm/yyyy', width: 13 },
-                { header: 'Día', width: 12 },
-                { header: 'Visitantes nuevos', numFmt: '#,##0', width: 18 },
-                { header: 'Clicks a WhatsApp', numFmt: '#,##0', width: 18 },
-                { header: 'Conversión', numFmt: '0.0%', width: 12 }
-            ], dayRows);
+            const wsDay = dataSheet(wb, 'Por día', dayCols, dayRows);
             const total = wsDay.getRow(dayRows.length + 2);
-            total.values = ['Total', '', visits.length, clicks.length, visits.length ? clicks.length / visits.length : null];
+            const totalValues = ['Total', '', visits.length, accesses.length, clicks.length, allClicks.length, rate(clicks.length, visits.length)];
+            if (hasAB) totalValues.push(ab.A.accesses, ab.B.accesses);
+            total.values = totalValues;
             total.font = { bold: true };
-            total.getCell(3).numFmt = total.getCell(4).numFmt = '#,##0';
-            total.getCell(5).numFmt = '0.0%';
+            dayCols.forEach((c, i) => { if (c.numFmt && i > 0) total.getCell(i + 1).numFmt = c.numFmt; });
             total.eachCell((cell) => { cell.border = { top: { style: 'thin', color: { argb: XL.accent } } }; });
-            wsDay.autoFilter = { from: { row: 1, column: 1 }, to: { row: dayRows.length + 1, column: 5 } };
+            wsDay.autoFilter = { from: { row: 1, column: 1 }, to: { row: dayRows.length + 1, column: dayCols.length } };
 
-            // ---- Hoja 3: Accesos y clicks (una sola lista, en orden de hora) ----
+            // ---- Hoja 3: Prueba A/B ----
+            if (hasAB) {
+                // Excel no admite "/" en el nombre de una hoja
+                const wsAB = wb.addWorksheet('Prueba A-B', { views: [{ showGridLines: false }] });
+                wsAB.columns = [{ width: 30 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 14 }];
+                wsAB.getCell('A1').value = 'Prueba A/B · Landing actual (A) vs. nueva (B)';
+                wsAB.getCell('A1').font = { size: 14, bold: true, color: { argb: XL.accent } };
+                wsAB.getCell('A2').value = 'Período: ' + label;
+                wsAB.getCell('A2').font = { color: { argb: XL.muted } };
+
+                let ra = sectionTitle(wsAB, 4, 'Resultado');
+                ra = writeTable(wsAB, ra,
+                    [{ header: 'Diseño' }, { header: 'Visitantes', ...NUM }, { header: 'Entraron a WhatsApp', ...NUM }, { header: 'Conversión por visitante', ...PCT },
+                        { header: 'Accesos', ...NUM }, { header: 'Accesos con WhatsApp', ...NUM }, { header: 'Conversión por acceso', ...PCT }, { header: 'Clicks totales', ...NUM }],
+                    ['A', 'B'].map((v) => [AB_NAMES[v] + (abv.winner === v ? ' (gana)' : ''), ab[v].n, ab[v].conv, rate(ab[v].conv, ab[v].n),
+                        ab[v].accesses, ab[v].accConv, rate(ab[v].accConv, ab[v].accesses), ab[v].clicks]));
+                if (abv.winner) fillRow(wsAB, ra - 2 + (abv.winner === 'A' ? 0 : 1), XL.accentLight);
+                wsAB.getCell(ra, 1).value = abv.text || 'Sin datos suficientes.';
+                wsAB.getCell(ra, 1).font = { bold: true, size: 10 };
+                ra++;
+
+                ra = sectionTitle(wsAB, ra + 1, 'Por origen (cada visitante en el origen de su primer acceso)');
+                const srcRows = abBySource(accesses, ab).map(([k, nA, cA, nB, cB]) => [k, nA, cA, rate(cA, nA), nB, cB, rate(cB, nB)]);
+                ra = writeTable(wsAB, ra,
+                    [{ header: 'Origen' }, { header: 'Visitantes A', ...NUM }, { header: 'Entraron A', ...NUM }, { header: 'Conversión A', ...PCT },
+                        { header: 'Visitantes B', ...NUM }, { header: 'Entraron B', ...NUM }, { header: 'Conversión B', ...PCT }],
+                    srcRows.length ? srcRows : [['Sin datos', 0, 0, null, 0, 0, null]]);
+
+                ra = sectionTitle(wsAB, ra + 1, 'Clicks por botón');
+                const buttons = countBy(allClicks.filter((c) => c.variant), 'button');
+                ra = writeTable(wsAB, ra,
+                    [{ header: 'Botón' }, { header: 'Clicks A', ...NUM }, { header: 'Clicks B', ...NUM }],
+                    buttons.length
+                        ? buttons.map(([k]) => [buttonName(k), allClicks.filter((c) => c.button === k && c.variant === 'A').length, allClicks.filter((c) => c.button === k && c.variant === 'B').length])
+                        : [['Sin clicks', 0, 0]]);
+
+                ra = sectionTitle(wsAB, ra + 1, 'Por día');
+                const abDays = days.filter((d) => accesses.some((a) => a.day === d && a.variant));
+                const dayVar = (d, v) => {
+                    const list = accesses.filter((a) => a.day === d && a.variant === v);
+                    const ips = new Set(list.map((a) => a.ip));
+                    const conv = [...ips].filter((ip) => ab[v].clickedIps.has(ip) && allClicks.some((c) => c.ip === ip && c.variant === v && c.day === d)).length;
+                    return [ips.size, conv, rate(conv, ips.size), list.length];
+                };
+                ra = writeTable(wsAB, ra,
+                    [{ header: 'Fecha', numFmt: 'dd/mm/yyyy' }, { header: 'Visitantes A', ...NUM }, { header: 'Entraron A', ...NUM }, { header: 'Conversión A', ...PCT }, { header: 'Accesos A', ...NUM },
+                        { header: 'Visitantes B', ...NUM }, { header: 'Entraron B', ...NUM }, { header: 'Conversión B', ...PCT }, { header: 'Accesos B', ...NUM }],
+                    abDays.length ? abDays.map((d) => [excelDay(d), ...dayVar(d, 'A'), ...dayVar(d, 'B')]) : [['Sin datos', 0, 0, null, 0, 0, 0, null, 0]]);
+                wsAB.getColumn(9).width = 12;
+
+                note(wsAB, ra + 1, [
+                    'Conversión por visitante = visitantes que tocaron WhatsApp ÷ visitantes. Cada IP cuenta una vez aunque entre muchas veces.',
+                    'Conversión por acceso: dato secundario (una persona que entra muchas veces pesa más).',
+                    `"Gana" solo aparece con al menos ${AB_MIN} visitantes por diseño y una diferencia significativa (95% de confianza).`,
+                    'Cada visitante ve siempre el mismo diseño: se guarda en una cookie de su navegador. Los datos anteriores a la prueba no tienen diseño.'
+                ]);
+            }
+
+            // ---- Hoja 4: Visitantes (una fila por IP) ----
+            const visitorRows = [...byIp].map(([ip, list]) => ({ ip, list }))
+                .sort((a, b) => b.list.length - a.list.length || b.list[b.list.length - 1].time - a.list[a.list.length - 1].time);
+            const wsVis = dataSheet(wb, 'Visitantes', [
+                { header: 'ID visitante', width: 14 },
+                { header: 'Ciudad', width: 22, align: 'left' },
+                { header: 'Provincia', width: 20, align: 'left' },
+                { header: 'País', width: 14, align: 'left' },
+                { header: 'Accesos', ...NUM, width: 10 },
+                { header: 'Clicks a WhatsApp', ...NUM, width: 18 },
+                { header: '¿Entró a WhatsApp?', width: 19, align: 'left' },
+                { header: 'Origen', width: 34, align: 'left' },
+                { header: 'Diseño', width: 9, align: 'left' },
+                { header: 'Primer acceso', ...DT, width: 18 },
+                { header: 'Último acceso', ...DT, width: 18 }
+            ], visitorRows.map(({ ip, list }) => [
+                shortId(ip),
+                ...locText(lastLoc(list, ip)),
+                list.length,
+                clicksByIp[ip] || 0,
+                clicksByIp[ip] ? 'Sí' : 'No',
+                [...new Set(list.map((a) => sourceName(a.referrer)))].join(', '),
+                [...new Set(list.map((a) => a.variant).filter(Boolean))].join(', ') || '—',
+                when(list[0]),
+                when(list[list.length - 1])
+            ]));
+            visitorRows.forEach(({ ip }, i) => { if (clicksByIp[ip]) fillRow(wsVis, i + 2, XL.accentLight); });
+
+            // ---- Hoja 5: Accesos y clicks (una sola lista, en orden de hora) ----
+            const nth = new Map(), seen = {};
+            accesses.forEach((a) => { seen[a.ip] = (seen[a.ip] || 0) + 1; nth.set(a, seen[a.ip]); });
             const events = [
-                ...accesses.map((a) => ({ ...a, kind: 'access' })),
-                ...allClicks.map((c) => ({ ...c, kind: 'click' }))
-            ].sort((a, b) => a.time - b.time);
+                ...accesses.map((a) => ({ e: a, kind: 'access' })),
+                ...allClicks.map((c) => ({ e: c, kind: 'click' }))
+            ].sort((a, b) => a.e.time - b.e.time);
             const wsEvents = dataSheet(wb, 'Accesos y clicks', [
-                { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
-                { header: 'Tipo', width: 18 },
-                { header: 'Origen / Botón', width: 38 },
-                { header: 'Diseño', width: 9 },
-                { header: 'Provincia / país', width: 22 },
-                { header: 'Ciudad', width: 22 },
-                { header: '¿Entró a WhatsApp?', width: 20 },
-                { header: 'Hora de entrada a WhatsApp', numFmt: 'dd/mm/yyyy hh:mm', width: 26 },
-                { header: 'ID visitante', width: 14 }
-            ], events.map((e) => {
-                const when = excelDateTime(e.ts) || excelDay(e.day);
-                if (e.kind === 'click') {
+                { header: 'Fecha y hora', ...DT, width: 18 },
+                { header: 'Tipo', width: 18, align: 'left' },
+                { header: 'Origen / Botón', width: 34, align: 'left' },
+                { header: 'Diseño', width: 9, align: 'left' },
+                { header: 'Provincia / país', width: 22, align: 'left' },
+                { header: 'Ciudad', width: 22, align: 'left' },
+                { header: '¿Entró a WhatsApp?', width: 20, align: 'left' },
+                { header: 'Hora de entrada a WhatsApp', ...DT, width: 26 },
+                { header: 'Visita', width: 10 },
+                { header: 'ID visitante', width: 14 },
+                { header: 'Parámetros del link', width: 44, align: 'left' }
+            ], events.map(({ e, kind }) => {
+                if (kind === 'click') {
                     // El click no guarda ubicación: se toma la del acceso al que pertenece
                     const a = e.access || {};
-                    return [when, 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, shortId(e.ip)];
+                    return [when(e), 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, '', shortId(e.ip), ''];
                 }
                 const first = e.clicks[0];
-                const entered = first
-                    ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '')
-                    : 'No';
+                const entered = first ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '') : 'No';
                 return [
-                    when, 'Acceso a la web', referrerName(e.referrer), e.variant || '—', provinceName(e), e.city || '—', entered,
-                    first ? excelDateTime(first.ts) || excelDay(first.day) : null,
-                    shortId(e.ip)
+                    when(e), 'Acceso a la web', referrerName(e.referrer), e.variant || '—', provinceName(e), e.city || '—', entered,
+                    first ? when(first) : null,
+                    `${nth.get(e)} de ${seen[e.ip]}`,
+                    shortId(e.ip),
+                    e.utm || ''
                 ];
             }));
             // Verde: accesos que entraron a WhatsApp · Dorado: los clicks
-            events.forEach((e, i) => {
-                const fill = e.kind === 'click' ? XL.goldLight : (e.clicks.length ? XL.accentLight : null);
-                if (!fill) return;
-                wsEvents.getRow(i + 2).eachCell({ includeEmpty: true }, (cell) => {
-                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
-                });
+            events.forEach(({ e, kind }, i) => {
+                const fill = kind === 'click' ? XL.goldLight : (e.clicks.length ? XL.accentLight : null);
+                if (fill) fillRow(wsEvents, i + 2, fill);
             });
+
+            // ---- Hoja 6: Ocultos ----
+            if (raw.hidden && raw.hidden.size) {
+                const log = raw.visitLog || [];
+                const counts = {}, lastByIp = {};
+                log.forEach((d) => {
+                    counts[d.ipHash] = (counts[d.ipHash] || 0) + 1;
+                    if ((d.country || d.region) && (!lastByIp[d.ipHash] || eventTime(d) > eventTime(lastByIp[d.ipHash]))) lastByIp[d.ipHash] = d;
+                });
+                const allVisitById = new Map((raw.visits || []).map((v) => [v._id, v]));
+                const wsHid = dataSheet(wb, 'Ocultos', [
+                    { header: 'ID visitante', width: 14 },
+                    { header: 'Nombre', width: 22, align: 'left' },
+                    { header: 'Ocultado por', width: 18, align: 'left' },
+                    { header: 'Fecha', ...DT, width: 18 },
+                    { header: 'Ciudad', width: 22, align: 'left' },
+                    { header: 'Provincia', width: 20, align: 'left' },
+                    { header: 'País', width: 14, align: 'left' },
+                    { header: 'Accesos (histórico)', ...NUM, width: 18 }
+                ], [...raw.hidden].map(([ip, h]) => [
+                    shortId(ip),
+                    h.name || '—',
+                    toUser(h.by) || '—',
+                    h.ts ? excelDateTime(h.ts) : null,
+                    ...locText(lastByIp[ip] || allVisitById.get(ip) || {}),
+                    counts[ip] || (allVisitById.has(ip) ? 1 : 0)
+                ]));
+                note(wsHid, raw.hidden.size + 3, ['Estos visitantes se ocultaron desde el panel y no se cuentan en ninguna otra hoja.']);
+            }
 
             return wb;
         }
