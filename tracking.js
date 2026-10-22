@@ -27,9 +27,9 @@ try {
 
 // Prueba A/B: la página que carga este archivo indica qué diseño vio el visitante
 // (A = landing actual, B = nueva). Si la página está por redirigir a la B, no se registra nada:
-// la visita la registra la B.
+// la visita la registra la B. Tampoco se registra la vista previa abierta desde el panel.
 const VARIANT = window.LALOMADA_VARIANT === 'A' || window.LALOMADA_VARIANT === 'B' ? window.LALOMADA_VARIANT : null;
-const SKIP = !!window.LALOMADA_REDIRECTING;
+const SKIP = !!window.LALOMADA_REDIRECTING || !!window.LALOMADA_PREVIEW;
 const withVariant = (data) => VARIANT ? { ...data, variant: VARIANT } : data;
 const withoutVariant = ({ variant, ...rest }) => rest;
 

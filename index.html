@@ -8,10 +8,13 @@
         /* Prueba A/B: la primera vez se sortea al 50% entre esta landing (A) y la nueva (B, /nueva).
            El resultado se guarda en una cookie (y en localStorage de respaldo) para que la persona
            vea siempre el mismo diseño, aunque cambie de red. Si el navegador no deja guardarlo,
-           o es un robot (Google, vistas previas de links), siempre A. Ante cualquier error, A. */
+           o es un robot (Google, vistas previas de links), siempre A. Ante cualquier error, A.
+           Con ?preview (botón del panel) se ve la A sin sorteo, sin tocar la cookie y sin registrar nada. */
         (function () {
             var variant = 'A';
             try {
+                var preview = /[?&]preview(=|&|$)/.test(location.search);
+                if (preview) window.LALOMADA_PREVIEW = true;
                 var BOT = /bot|crawl|spider|slurp|headless|lighthouse|vercel|facebookexternalhit|facebot|whatsapp|telegram|preview/i;
                 var COOKIE = /(?:^|;\s*)lalomada_ab=([AB])(?:;|$)/;
                 var readStored = function () {
@@ -23,7 +26,7 @@
                     } catch (e) {}
                     return null;
                 };
-                if (!BOT.test(navigator.userAgent || '')) {
+                if (!preview && !BOT.test(navigator.userAgent || '')) {
                     var chosen = readStored() || (Math.random() < 0.5 ? 'A' : 'B');
                     document.cookie = 'lalomada_ab=' + chosen + '; max-age=31536000; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
                     try { localStorage.setItem('lalomada_ab', chosen); } catch (e) {}
