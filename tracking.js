@@ -221,6 +221,10 @@ window.lalomadaTrackClick = function (buttonId) {
     } catch (e) {}
   }
   const button = String(buttonId || 'desconocido').slice(0, 40);
+  // Píxel de Meta (meta-pixel.js): el click a WhatsApp es la conversión ("Contact")
+  if (!SKIP && typeof window.fbq === 'function') {
+    try { window.fbq('track', 'Contact', { content_name: button, variant: VARIANT || 'sin_prueba' }); } catch (e) {}
+  }
   record('clicks', { button });
   log('clickLog', { button });
 };
