@@ -2,11 +2,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Quién puede borrar datos desde el panel (botones "Eliminar datos").
-    // POR AHORA CUALQUIERA. Cuando el panel tenga inicio de sesión, cambiar por:
-    //   return request.auth != null;
-    function canDelete() {
-      return true;
+    // Quién puede ver y borrar los datos: usuarios logueados en el panel (/statsweb).
+    // Los usuarios se crean a mano en Firebase Authentication (usuario@mail.com).
+    // El sitio no lee nada: solo crea visitas y clicks, sin necesidad de login.
+    function isAdmin() {
+      return request.auth != null;
     }
 
     // Ubicación aproximada (opcional): país, provincia, ciudad y coordenadas según la IP
@@ -23,7 +23,7 @@ service cloud.firestore {
     // trata como "update" y se rechaza → 1 registro por IP.
 
     match /visits/{ipHash} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create: if ipHash.matches('^[a-f0-9]{64}$')
         && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon'])
         && request.resource.data.ts == request.time
@@ -33,11 +33,11 @@ service cloud.firestore {
         && request.resource.data.referrer.size() <= 100
         && validGeo(request.resource.data);
       allow update: if false;
-      allow delete: if canDelete();
+      allow delete: if isAdmin();
     }
 
     match /clicks/{ipHash} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create: if ipHash.matches('^[a-f0-9]{64}$')
         && request.resource.data.keys().hasOnly(['ts', 'day', 'button'])
         && request.resource.data.ts == request.time
@@ -46,14 +46,14 @@ service cloud.firestore {
         && request.resource.data.button is string
         && request.resource.data.button.size() <= 40;
       allow update: if false;
-      allow delete: if canDelete();
+      allow delete: if isAdmin();
     }
 
     // Historial completo: un documento por acceso / por click (ID automático).
     // ipHash permite cruzar qué acceso terminó en click a WhatsApp.
 
     match /visitLog/{id} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon'])
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
@@ -64,11 +64,11 @@ service cloud.firestore {
         && request.resource.data.referrer.size() <= 100
         && validGeo(request.resource.data);
       allow update: if false;
-      allow delete: if canDelete();
+      allow delete: if isAdmin();
     }
 
     match /clickLog/{id} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'button'])
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
@@ -78,7 +78,7 @@ service cloud.firestore {
         && request.resource.data.button is string
         && request.resource.data.button.size() <= 40;
       allow update: if false;
-      allow delete: if canDelete();
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {
