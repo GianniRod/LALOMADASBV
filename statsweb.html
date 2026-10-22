@@ -1880,7 +1880,8 @@
                 { header: 'Conversión', ...PCT, width: 12 }
             ];
             if (hasAB) dayCols.push({ header: 'Accesos A', ...NUM, width: 11 }, { header: 'Accesos B', ...NUM, width: 11 });
-            const dayRows = days.map((d) => {
+            // Todas las listas del Excel van del más nuevo (arriba) al más viejo (abajo)
+            const dayRows = [...days].reverse().map((d) => {
                 const nv = vByDay[d] || 0, nc = cByDay[d] || 0;
                 const row = [excelDay(d), weekdayFmt.format(excelDay(d)), nv, accByDay[d] || 0, nc, allClicksByDay[d] || 0, nv ? nc / nv : null];
                 if (hasAB) row.push(accByDayVar(d, 'A'), accByDayVar(d, 'B'));
@@ -1943,7 +1944,7 @@
                 ra = writeTable(wsAB, ra,
                     [{ header: 'Fecha', numFmt: 'dd/mm/yyyy' }, { header: 'Visitantes A', ...NUM }, { header: 'Entraron A', ...NUM }, { header: 'Conversión A', ...PCT }, { header: 'Accesos A', ...NUM },
                         { header: 'Visitantes B', ...NUM }, { header: 'Entraron B', ...NUM }, { header: 'Conversión B', ...PCT }, { header: 'Accesos B', ...NUM }],
-                    abDays.length ? abDays.map((d) => [excelDay(d), ...dayVar(d, 'A'), ...dayVar(d, 'B')]) : [['Sin datos', 0, 0, null, 0, 0, 0, null, 0]]);
+                    abDays.length ? [...abDays].reverse().map((d) => [excelDay(d), ...dayVar(d, 'A'), ...dayVar(d, 'B')]) : [['Sin datos', 0, 0, null, 0, 0, 0, null, 0]]);
                 wsAB.getColumn(9).width = 12;
 
                 note(wsAB, ra + 1, [
@@ -1955,8 +1956,9 @@
             }
 
             // ---- Hoja 4: Visitantes (una fila por IP) ----
+            // Por último acceso, el más reciente arriba
             const visitorRows = [...byIp].map(([ip, list]) => ({ ip, list }))
-                .sort((a, b) => b.list.length - a.list.length || b.list[b.list.length - 1].time - a.list[a.list.length - 1].time);
+                .sort((a, b) => b.list[b.list.length - 1].time - a.list[a.list.length - 1].time);
             const wsVis = dataSheet(wb, 'Visitantes', [
                 { header: 'ID visitante', width: 14 },
                 { header: 'Ciudad', width: 22, align: 'left' },
@@ -1988,7 +1990,7 @@
             const events = [
                 ...accesses.map((a) => ({ e: a, kind: 'access' })),
                 ...allClicks.map((c) => ({ e: c, kind: 'click' }))
-            ].sort((a, b) => a.e.time - b.e.time);
+            ].sort((a, b) => b.e.time - a.e.time || (b.kind === 'click') - (a.kind === 'click'));
             const wsEvents = dataSheet(wb, 'Accesos y clicks', [
                 { header: 'Fecha y hora', ...DT, width: 18 },
                 { header: 'Tipo', width: 18, align: 'left' },
@@ -2041,7 +2043,7 @@
                     { header: 'Provincia', width: 20, align: 'left' },
                     { header: 'País', width: 14, align: 'left' },
                     { header: 'Accesos (histórico)', ...NUM, width: 18 }
-                ], [...raw.hidden].map(([ip, h]) => [
+                ], [...raw.hidden].sort((a, b) => (b[1].ts ? b[1].ts.toMillis() : 0) - (a[1].ts ? a[1].ts.toMillis() : 0)).map(([ip, h]) => [
                     shortId(ip),
                     h.name || '—',
                     toUser(h.by) || '—',
