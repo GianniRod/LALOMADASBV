@@ -252,6 +252,20 @@
         .map-rank > div:hover .row-top span { color: var(--accent); }
         .map-foot { font-size: .75rem; color: var(--text-light); margin-top: 14px; }
 
+        /* ---- Inicio de sesión ---- */
+        body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
+        .login { display: none; min-height: calc(100vh - 96px); align-items: center; justify-content: center; }
+        body.locked .login { display: flex; }
+        .login .card { width: 100%; max-width: 360px; padding: 28px 24px; }
+        .login h1 { font-size: 1.6rem; margin: 4px 0 20px; }
+        .login form { display: flex; flex-direction: column; gap: 14px; }
+        .login .field input { padding: 10px 12px; font-size: .95rem; }
+        .login .btn { padding: 11px 18px; margin-top: 4px; }
+        .login-msg { font-size: .8rem; color: #8A1C1C; min-height: 1.2em; }
+        .session { display: flex; align-items: center; gap: 10px; font-size: .82rem; color: var(--text-light); }
+        .session b { color: var(--text); font-weight: 500; }
+        .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
         @media (max-width: 860px) {
             .kpis { grid-template-columns: repeat(2, 1fr); }
             .grid-2 { grid-template-columns: 1fr; }
@@ -265,14 +279,30 @@
     </style>
 </head>
 
-<body>
+<body class="checking">
+    <div class="login">
+        <div class="card">
+            <span class="label">Panel de desarrolladores</span>
+            <h1>La Lomada de Puiggari</h1>
+            <form id="loginForm" novalidate>
+                <label class="field">Usuario<input type="text" id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+                <label class="field">Contraseña<input type="password" id="loginPass" autocomplete="current-password" required></label>
+                <div class="login-msg" id="loginMsg"></div>
+                <button class="btn" id="loginBtn" type="submit">Entrar</button>
+            </form>
+        </div>
+    </div>
+
     <div class="wrap">
         <header>
             <div>
                 <span class="label">Panel de desarrolladores</span>
                 <h1>La Lomada de Puiggari</h1>
             </div>
-            <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
+            <div class="head-right">
+                <div class="session"><span>Usuario: <b id="sessionUser"></b></span><button class="btn-ghost" id="logoutBtn">Cerrar sesión</button></div>
+                <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
+            </div>
         </header>
 
         <div class="error" id="errorBox"></div>
@@ -409,9 +439,75 @@
         import {
             getFirestore, collection, query, orderBy, onSnapshot, getDocs, where, writeBatch
         } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+        import {
+            getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+        } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
         import { firebaseConfig, STATS_TIMEZONE } from './firebase-config.js';
 
-        const db = getFirestore(initializeApp(firebaseConfig));
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // ---- Inicio de sesión ----
+        // Firebase pide email: el usuario "gianni" es la cuenta gianni@mail.com.
+        // El dominio nunca se muestra; solo se escribe y se ve el nombre de usuario.
+        const LOGIN_DOMAIN = '@mail.com';
+        const toEmail = (user) => user.trim().toLowerCase().replace(/@.*$/, '') + LOGIN_DOMAIN;
+        const toUser = (email) => (email || '').replace(/@.*$/, '');
+
+        const LOGIN_ERRORS = {
+            'auth/invalid-credential': 'Usuario o contraseña incorrectos.',
+            'auth/invalid-email': 'Usuario o contraseña incorrectos.',
+            'auth/user-not-found': 'Usuario o contraseña incorrectos.',
+            'auth/wrong-password': 'Usuario o contraseña incorrectos.',
+            'auth/user-disabled': 'Este usuario está deshabilitado.',
+            'auth/too-many-requests': 'Demasiados intentos. Probá de nuevo en unos minutos.',
+            'auth/network-request-failed': 'Sin conexión. Revisá internet y probá de nuevo.',
+            'auth/operation-not-allowed': 'El inicio con usuario y contraseña no está activado en Firebase.'
+        };
+
+        let dataStarted = false;
+        // Si Firebase tarda en confirmar la sesión, se muestra el login igual (nunca pantalla en blanco)
+        setTimeout(() => {
+            if (document.body.classList.contains('checking')) {
+                document.body.classList.remove('checking');
+                document.body.classList.add('locked');
+            }
+        }, 4000);
+        onAuthStateChanged(auth, (user) => {
+            document.body.classList.remove('checking');
+            document.body.classList.toggle('locked', !user);
+            if (!user) { document.getElementById('loginUser').focus(); return; }
+            document.getElementById('sessionUser').textContent = toUser(user.email);
+            if (!dataStarted) { dataStarted = true; startData(); }
+        });
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const user = document.getElementById('loginUser').value;
+            const pass = document.getElementById('loginPass').value;
+            const msg = document.getElementById('loginMsg');
+            const btn = document.getElementById('loginBtn');
+            if (!user.trim() || !pass) { msg.textContent = 'Completá usuario y contraseña.'; return; }
+            msg.textContent = '';
+            btn.disabled = true;
+            btn.textContent = 'Entrando…';
+            try {
+                await signInWithEmailAndPassword(auth, toEmail(user), pass);
+                document.getElementById('loginPass').value = '';
+            } catch (err) {
+                console.warn(err);
+                msg.textContent = LOGIN_ERRORS[err && err.code] || 'No se pudo iniciar sesión. Probá de nuevo.';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Entrar';
+            }
+        });
+
+        // Recargar al salir corta las conexiones en vivo y borra los datos de la pantalla
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            signOut(auth).finally(() => location.reload());
+        });
 
         const BUTTON_NAMES = {
             ctaNavbar: 'Menú · Solicitar asesoramiento',
@@ -563,7 +659,9 @@
             $('statusText').textContent = 'Sin conexión';
         }
 
-        ['visits', 'clicks'].forEach((name) => {
+        // Los datos se piden recién después de iniciar sesión (las reglas exigen estar logueado)
+        function startData() {
+          ['visits', 'clicks'].forEach((name) => {
             onSnapshot(
                 query(collection(db, name), orderBy('ts', 'desc')),
                 (snap) => {
@@ -575,7 +673,8 @@
                 },
                 showError
             );
-        });
+          });
+        }
 
         // Tooltip del gráfico
         const tip = $('tip');
