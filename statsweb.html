@@ -269,9 +269,18 @@
         .table-scroll { overflow: auto; max-height: 560px; }
         .ip-table th, .ip-table td { padding: 8px 10px; white-space: nowrap; }
         .ip-table th:first-child, .ip-table td:first-child { padding-left: 0; }
-        .ip-table th { position: sticky; top: 0; background: var(--card); }
+        .ip-table > thead > tr > th { position: sticky; top: 0; background: var(--card); z-index: 1; }
         .ip-table .num { text-align: right; }
         .ip-id { font-family: ui-monospace, Consolas, monospace; font-size: .8rem; }
+        .ip-row { cursor: pointer; }
+        .ip-row:hover td { background: var(--accent-light); }
+        .ip-row.open td { background: var(--accent-light); border-bottom-color: transparent; }
+        .chev { display: inline-block; width: 14px; color: var(--accent); }
+        .ip-detail > td { text-align: left; background: var(--bg); padding: 10px 14px 14px !important; }
+        .ip-detail table { font-size: .8rem; }
+        .ip-detail th { padding: 6px 10px; }
+        .ip-detail td { padding: 6px 10px; border-bottom-color: var(--border); }
+        .ip-detail .wa { color: var(--accent); font-weight: 500; }
 
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
@@ -463,7 +472,7 @@
                     <tbody id="repeatRows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
                 </table>
             </div>
-            <p class="section-foot">El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
+            <p class="section-foot">Tocá un visitante para ver cada acceso con su hora, el medio por el que llegó y si entró a WhatsApp. El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
         </section>
 
         <section class="card export danger-zone">
@@ -676,9 +685,38 @@
             try { return countryNames.of(code); } catch (e) { return code; }
         }
 
+        // Detalle de cada acceso de una IP: hora, medio, ubicación y si entró a WhatsApp
+        function repeatDetail(list, hasClicks) {
+            return `<tr class="ip-detail"><td colspan="9">
+                <table>
+                    <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>¿Entró a WhatsApp?</th></tr></thead>
+                    <tbody>${list.map((a, i) => {
+                        const place = [a.city, (a.country || a.region) ? provinceName(a) : null].filter(Boolean).join(' · ') || '—';
+                        const wa = !hasClicks ? '—'
+                            : a.clicks.length
+                                ? `<span class="wa">Sí · ${a.clicks.map((c) => escapeHtml(buttonName(c.button)) + ' (' + eventWhen(c) + ')').join(', ')}</span>`
+                                : 'No';
+                        return `<tr>
+                            <td>${i + 1}</td>
+                            <td>${eventWhen(a)}</td>
+                            <td>${escapeHtml(sourceName(a.referrer))}</td>
+                            <td>${escapeHtml(place)}</td>
+                            <td>${wa}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </td></tr>`;
+        }
+
+        // IPs abiertas en la tabla; se mantienen al actualizarse los datos en vivo
+        const repeatOpen = new Set();
+        let lastRepeat = null;
+
         // IPs con más de un acceso: cuántas veces entraron, desde dónde y cuándo
         function renderRepeat(accesses, allClicks) {
             if (!accesses) return;
+            lastRepeat = [accesses, allClicks];
+            if (allClicks) matchClicks(accesses, allClicks);
             const byIp = new Map();
             accesses.forEach((a) => {
                 if (!byIp.has(a.ip)) byIp.set(a.ip, []);
@@ -703,8 +741,9 @@
                     const located = loc.country || loc.region;
                     const province = !located ? '—' : (loc.country && loc.country !== 'AR' ? loc.region || '—' : provinceName(loc));
                     const sources = [...new Set(list.map((a) => sourceName(a.referrer)))].join(', ');
-                    return `<tr>
-                        <td class="ip-id">${escapeHtml(shortId(ip))}</td>
+                    const open = repeatOpen.has(ip);
+                    return `<tr class="ip-row${open ? ' open' : ''}" data-ip="${escapeHtml(ip)}" title="Ver cada acceso">
+                        <td class="ip-id"><span class="chev">${open ? '▾' : '▸'}</span>${escapeHtml(shortId(ip))}</td>
                         <td>${escapeHtml(loc.city || '—')}</td>
                         <td>${escapeHtml(province)}</td>
                         <td>${escapeHtml(countryName(loc.country))}</td>
@@ -713,10 +752,18 @@
                         <td>${escapeHtml(sources)}</td>
                         <td>${eventWhen(list[0])}</td>
                         <td>${eventWhen(list[list.length - 1])}</td>
-                    </tr>`;
+                    </tr>` + (open ? repeatDetail(list, !!allClicks) : '');
                 }).join('')
                 : '<tr><td colspan="9" class="empty">Todavía nadie entró más de una vez.</td></tr>';
         }
+
+        $('repeatRows').addEventListener('click', (e) => {
+            const row = e.target.closest('.ip-row');
+            if (!row || !lastRepeat) return;
+            const ip = row.dataset.ip;
+            if (repeatOpen.has(ip)) repeatOpen.delete(ip); else repeatOpen.add(ip);
+            renderRepeat(...lastRepeat);
+        });
 
         function lastDays(n) {
             const days = [];
