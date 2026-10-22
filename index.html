@@ -4,6 +4,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        /* Prueba A/B: la primera vez se sortea al 50% entre esta landing (A) y la nueva (B, /nueva).
+           El resultado se guarda en una cookie (y en localStorage de respaldo) para que la persona
+           vea siempre el mismo diseño, aunque cambie de red. Si el navegador no deja guardarlo,
+           o es un robot (Google, vistas previas de links), siempre A. Ante cualquier error, A. */
+        (function () {
+            var variant = 'A';
+            try {
+                var BOT = /bot|crawl|spider|slurp|headless|lighthouse|vercel|facebookexternalhit|facebot|whatsapp|telegram|preview/i;
+                var COOKIE = /(?:^|;\s*)lalomada_ab=([AB])(?:;|$)/;
+                var readStored = function () {
+                    var m = document.cookie.match(COOKIE);
+                    if (m) return m[1];
+                    try {
+                        var ls = localStorage.getItem('lalomada_ab');
+                        if (ls === 'A' || ls === 'B') return ls;
+                    } catch (e) {}
+                    return null;
+                };
+                if (!BOT.test(navigator.userAgent || '')) {
+                    var chosen = readStored() || (Math.random() < 0.5 ? 'A' : 'B');
+                    document.cookie = 'lalomada_ab=' + chosen + '; max-age=31536000; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+                    try { localStorage.setItem('lalomada_ab', chosen); } catch (e) {}
+                    // Solo se usa el sorteo si quedó guardado; si no, la próxima vez podría tocar otro diseño
+                    if (readStored() === chosen) variant = chosen;
+                }
+                if (variant === 'B') {
+                    window.LALOMADA_REDIRECTING = true;
+                    // La B necesita saber de dónde venía la visita (Instagram, Facebook…)
+                    try { sessionStorage.setItem('lalomada_ref', document.referrer || ''); } catch (e) {}
+                    document.documentElement.style.visibility = 'hidden';
+                    setTimeout(function () { document.documentElement.style.visibility = ''; }, 8000);
+                    location.replace('nueva' + location.search + location.hash);
+                }
+            } catch (e) {
+                variant = 'A';
+                window.LALOMADA_REDIRECTING = false;
+                document.documentElement.style.visibility = '';
+            }
+            window.LALOMADA_VARIANT = variant;
+        })();
+    </script>
     <meta name="description"
         content="LA LOMADA DE PUIGGARI — Barrio Privado en Puiggari, Libertador San Martín, Entre Ríos. 84 lotes con respaldo jurídico y asesoramiento notarial.">
     <meta name="robots" content="index, follow">
@@ -316,7 +358,7 @@
         </svg>
     </a>
 
-    <script type="module" src="tracking.js?v=4"></script>
+    <script type="module" src="tracking.js?v=5"></script>
     <script src="script.js"></script>
 </body>
 

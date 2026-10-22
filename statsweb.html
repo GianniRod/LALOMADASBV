@@ -279,6 +279,17 @@
         .tag { font-size: .68rem; font-weight: 600; color: var(--gold); background: var(--gold-light); border-radius: 4px; padding: 1px 6px; }
         .section-foot { font-size: .75rem; color: var(--text-light); margin-top: 12px; }
 
+        /* ---- Prueba A/B ---- */
+        .ab { margin-bottom: 16px; }
+        .ab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .ab-tile { background: var(--bg); border-radius: 10px; padding: 16px 18px; border-top: 3px solid var(--gold); }
+        .ab-tile.b { border-top-color: var(--accent); }
+        .ab-tile .name { font-weight: 600; font-size: .9rem; display: flex; align-items: center; gap: 8px; }
+        .ab-tile .big { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 6px; }
+        .ab-tile .meta { font-size: .8rem; color: var(--text-light); }
+        .tag.win { color: var(--accent); background: var(--accent-light); }
+        .ab-verdict { font-size: .85rem; margin: 14px 0 6px; }
+
         /* ---- Visitantes que volvieron ---- */
         .table-scroll { overflow: auto; max-height: 560px; }
         .ip-table th, .ip-table td { padding: 8px 10px; white-space: nowrap; }
@@ -329,6 +340,7 @@
         @media (max-width: 860px) {
             .kpis { grid-template-columns: repeat(2, 1fr); }
             .social-grid { grid-template-columns: repeat(2, 1fr); }
+            .ab-grid { grid-template-columns: 1fr; }
             .grid-2 { grid-template-columns: 1fr; }
             .map-layout { grid-template-columns: 1fr; }
             #map { height: 480px; }
@@ -370,7 +382,7 @@
             </div>
             <div class="head-right">
                 <div class="session">
-                    <a class="btn-ghost" href="nueva" target="_blank" rel="noopener" title="Versión de prueba del nuevo diseño. No suma a las estadísticas.">Ver nueva landing ↗</a>
+                    <a class="btn-ghost" href="nueva?preview" target="_blank" rel="noopener" title="Versión de prueba del nuevo diseño. No suma a las estadísticas.">Ver nueva landing ↗</a>
                     <span>Usuario: <b id="sessionUser"></b></span><button class="btn-ghost" id="logoutBtn">Cerrar sesión</button>
                 </div>
                 <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
@@ -414,6 +426,26 @@
             </div>
             <div class="social-grid" id="social"></div>
             <p class="section-foot" id="socialFoot"></p>
+        </section>
+
+        <section class="card ab">
+            <div class="section-head">
+                <h2>Prueba A/B · Landing actual vs. nueva</h2>
+                <p id="abSub">Cada visitante ve siempre el mismo diseño (se guarda en su navegador)</p>
+            </div>
+            <div class="ab-grid" id="abGrid"></div>
+            <p class="ab-verdict" id="abVerdict"></p>
+            <div class="table-scroll">
+                <table class="ip-table">
+                    <thead><tr>
+                        <th>Origen</th>
+                        <th class="num">Accesos A</th><th class="num">Conversión A</th>
+                        <th class="num">Accesos B</th><th class="num">Conversión B</th>
+                    </tr></thead>
+                    <tbody id="abRows"></tbody>
+                </table>
+            </div>
+            <p class="section-foot">Conversión = accesos desde los que se tocó un botón de WhatsApp ÷ accesos. Solo cuentan los accesos desde que empezó la prueba; los anteriores no tienen diseño asignado.</p>
         </section>
 
         <section class="card export">
@@ -551,10 +583,10 @@
             <div class="table-scroll">
                 <table class="ip-table">
                     <thead><tr>
-                        <th></th><th>Fecha y hora</th><th>Medio</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                        <th></th><th>Fecha y hora</th><th>Medio</th><th>Diseño</th><th>Ciudad</th><th>Provincia</th><th>País</th>
                         <th class="num">Visita</th><th>¿Entró a WhatsApp?</th><th>ID visitante</th><th>Parámetros del link</th>
                     </tr></thead>
-                    <tbody id="allRows"><tr><td colspan="10" class="empty">Cargando…</td></tr></tbody>
+                    <tbody id="allRows"><tr><td colspan="11" class="empty">Cargando…</td></tr></tbody>
                 </table>
             </div>
             <div class="list-more"><button class="btn-ghost" id="allMore" hidden>Mostrar más</button></div>
@@ -750,6 +782,74 @@
         ];
         const plural = (n, word) => `${fmt.format(n)} ${word}${n === 1 ? '' : 's'}`;
 
+        // ---- Prueba A/B ----
+        const AB_NAMES = { A: 'A · Landing actual', B: 'B · Landing nueva' };
+        const AB_MIN = 30; // accesos mínimos por diseño antes de sacar conclusiones
+
+        function abStats(accesses, allClicks, v) {
+            const list = accesses.filter((a) => a.variant === v);
+            const conv = list.filter((a) => a.clicks && a.clicks.length).length;
+            return {
+                n: list.length,
+                conv,
+                rate: list.length ? conv / list.length : 0,
+                ips: new Set(list.map((a) => a.ip)).size,
+                clicks: allClicks ? allClicks.filter((c) => c.variant === v).length : null,
+                first: list.length ? list[0] : null
+            };
+        }
+
+        // Diferencia de proporciones (prueba z, 95% de confianza)
+        function abSignificant(a, b) {
+            const p = (a.conv + b.conv) / (a.n + b.n);
+            const se = Math.sqrt(p * (1 - p) * (1 / a.n + 1 / b.n));
+            return se > 0 && Math.abs(a.rate - b.rate) / se >= 1.96;
+        }
+
+        function renderAB(accesses, allClicks) {
+            if (!accesses) return;
+            const s = { A: abStats(accesses, allClicks, 'A'), B: abStats(accesses, allClicks, 'B') };
+            const started = [s.A.first, s.B.first].filter(Boolean).sort((x, y) => x.time - y.time)[0];
+            $('abSub').textContent = started
+                ? `Desde ${eventWhen(started)} · cada visitante ve siempre el mismo diseño (se guarda en su navegador)`
+                : 'Todavía no hay accesos con diseño asignado. Empieza a contar cuando se publique la prueba.';
+
+            const enough = s.A.n >= AB_MIN && s.B.n >= AB_MIN;
+            const sig = enough && abSignificant(s.A, s.B);
+            const winner = sig ? (s.A.rate > s.B.rate ? 'A' : 'B') : null;
+
+            $('abGrid').innerHTML = ['A', 'B'].map((v) => {
+                const x = s[v];
+                return `<div class="ab-tile${v === 'B' ? ' b' : ''}">
+                    <div class="name">${AB_NAMES[v]}${winner === v ? '<span class="tag win">Gana</span>' : ''}</div>
+                    <div class="big">${x.n ? pct(x.conv, x.n) : '—'} <span class="meta">conversión</span></div>
+                    <div class="meta">${plural(x.n, 'acceso')} · ${plural(x.ips, 'visitante')}</div>
+                    <div class="meta">${fmt.format(x.conv)} entraron a WhatsApp${x.clicks === null ? '' : ` · ${plural(x.clicks, 'click')} en total`}</div>
+                </div>`;
+            }).join('');
+
+            let verdict = '';
+            if (!s.A.n && !s.B.n) verdict = '';
+            else if (!enough) verdict = `Todavía hay pocos datos para comparar: hacen falta al menos ${AB_MIN} accesos en cada diseño.`;
+            else if (!sig) verdict = 'Por ahora la diferencia no es concluyente: puede deberse al azar. Conviene esperar más accesos.';
+            else {
+                const lo = winner === 'A' ? s.B : s.A, hi = s[winner];
+                const lift = lo.rate ? ((hi.rate / lo.rate - 1) * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '% más' : 'más';
+                verdict = `${AB_NAMES[winner]} convierte ${lift} que la otra, y la diferencia es significativa (95% de confianza).`;
+            }
+            $('abVerdict').textContent = verdict;
+
+            const sources = countBy(accesses.filter((a) => a.variant).map((a) => ({ s: sourceName(a.referrer) })), 's');
+            const cell = (v, k) => {
+                const list = accesses.filter((a) => a.variant === v && sourceName(a.referrer) === k);
+                const conv = list.filter((a) => a.clicks && a.clicks.length).length;
+                return `<td class="num">${fmt.format(list.length)}</td><td class="num">${list.length ? pct(conv, list.length) : '—'}</td>`;
+            };
+            $('abRows').innerHTML = sources.length
+                ? sources.map(([k]) => `<tr><td>${escapeHtml(k)}</td>${cell('A', k)}${cell('B', k)}</tr>`).join('')
+                : '<tr><td colspan="5" class="empty">Sin datos todavía.</td></tr>';
+        }
+
         function renderSocial(visits, accesses) {
             const clickedIds = new Set(state.clicks.map((c) => c._id));
             $('social').innerHTML = SOCIAL_SOURCES.map((s) => {
@@ -844,6 +944,7 @@
                         ${hideCell(a.ip)}
                         <td>${eventWhen(a)}</td>
                         <td>${escapeHtml(sourceName(a.referrer))}</td>
+                        <td>${a.variant === 'A' || a.variant === 'B' ? a.variant : '—'}</td>
                         ${locCells(a)}
                         <td class="num">${nth} de ${totals[a.ip]}</td>
                         <td>${wa}</td>
@@ -851,7 +952,7 @@
                         <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="10" class="empty">Sin accesos todavía.</td></tr>';
+                : '<tr><td colspan="11" class="empty">Sin accesos todavía.</td></tr>';
 
             const left = rows.length - shown.length;
             $('allMore').hidden = left <= 0;
@@ -1061,6 +1162,7 @@
             }
             if (accesses && allClicks) matchClicks(accesses, allClicks);
             renderSocial(visits, accesses);
+            renderAB(accesses, allClicks);
             renderRepeat(accesses, allClicks);
             renderHidden();
             if (accesses) {
@@ -1654,6 +1756,14 @@
                     })
                     : [['Sin accesos en el período', 0, 0, null]]);
 
+            r = sectionTitle(ws, r + 1, 'Prueba A/B');
+            r = writeTable(ws, r,
+                [{ header: 'Diseño' }, { header: 'Accesos', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
+                ['A', 'B'].map((v) => {
+                    const x = abStats(accesses, allClicks, v);
+                    return [AB_NAMES[v], x.n, x.conv, x.n ? x.rate : null];
+                }));
+
             const notes = [
                 'Cada IP se cuenta una sola vez: un visitante o un click por IP en todo el histórico.',
                 '"Hicieron click": visitantes de ese origen que en algún momento tocaron un botón de WhatsApp.',
@@ -1697,6 +1807,7 @@
                 { header: 'Fecha y hora', numFmt: 'dd/mm/yyyy hh:mm', width: 18 },
                 { header: 'Tipo', width: 18 },
                 { header: 'Origen / Botón', width: 38 },
+                { header: 'Diseño', width: 9 },
                 { header: 'Provincia / país', width: 22 },
                 { header: 'Ciudad', width: 22 },
                 { header: '¿Entró a WhatsApp?', width: 20 },
@@ -1707,14 +1818,14 @@
                 if (e.kind === 'click') {
                     // El click no guarda ubicación: se toma la del acceso al que pertenece
                     const a = e.access || {};
-                    return [when, 'Click a WhatsApp', buttonName(e.button), provinceName(a), a.city || '—', '—', null, shortId(e.ip)];
+                    return [when, 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, shortId(e.ip)];
                 }
                 const first = e.clicks[0];
                 const entered = first
                     ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '')
                     : 'No';
                 return [
-                    when, 'Acceso a la web', referrerName(e.referrer), provinceName(e), e.city || '—', entered,
+                    when, 'Acceso a la web', referrerName(e.referrer), e.variant || '—', provinceName(e), e.city || '—', entered,
                     first ? excelDateTime(first.ts) || excelDay(first.day) : null,
                     shortId(e.ip)
                 ];

@@ -4,7 +4,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Versión de prueba del nuevo diseño: no se indexa y no registra estadísticas (no carga tracking.js) -->
+    <script>
+        /* Prueba A/B: esta es la versión B. Llegan acá los visitantes a los que el sorteo de
+           index.html les asignó B (cookie lalomada_ab=B). Con ?preview (botón del panel) se ve
+           sin registrar nada ni tocar la cookie. Si alguien con cookie A entra directo a /nueva,
+           vuelve a la A para que nunca le cambie el diseño. */
+        (function () {
+            window.LALOMADA_TRACK = false;
+            try {
+                if (/[?&]preview(=|&|$)/.test(location.search)) return;
+                var m = document.cookie.match(/(?:^|;\s*)lalomada_ab=([AB])(?:;|$)/);
+                var saved = m ? m[1] : null;
+                if (!saved) {
+                    try {
+                        var ls = localStorage.getItem('lalomada_ab');
+                        if (ls === 'A' || ls === 'B') saved = ls;
+                    } catch (e) {}
+                }
+                if (saved === 'A') {
+                    window.LALOMADA_REDIRECTING = true;
+                    document.documentElement.style.visibility = 'hidden';
+                    setTimeout(function () { document.documentElement.style.visibility = ''; }, 8000);
+                    location.replace('./' + location.search + location.hash);
+                    return;
+                }
+                if (!saved) {
+                    // Entró directo a /nueva sin sorteo previo: queda en B
+                    document.cookie = 'lalomada_ab=B; max-age=31536000; path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+                    try { localStorage.setItem('lalomada_ab', 'B'); } catch (e) {}
+                }
+                window.LALOMADA_VARIANT = 'B';
+                window.LALOMADA_TRACK = true;
+                // Origen real de la visita, guardado por la A antes de redirigir
+                try {
+                    var ref = sessionStorage.getItem('lalomada_ref');
+                    if (ref !== null) {
+                        window.LALOMADA_REFERRER = ref;
+                        sessionStorage.removeItem('lalomada_ref');
+                    }
+                } catch (e) {}
+                // En la barra se ve la dirección principal: si alguien la comparte, el otro hace su propio sorteo
+                try {
+                    history.replaceState(history.state, '', location.pathname.replace(/nueva(\.html)?$/, '') + location.search + location.hash);
+                } catch (e) {}
+            } catch (e) {}
+        })();
+    </script>
+    <script>
+        // Estadísticas solo para visitantes de la prueba (no en la vista previa del panel)
+        if (window.LALOMADA_TRACK) {
+            var t = document.createElement('script');
+            t.type = 'module';
+            t.src = 'tracking.js?v=5';
+            document.head.appendChild(t);
+        }
+    </script>
+    <!-- Versión B de la prueba A/B: no se indexa en buscadores -->
     <meta name="robots" content="noindex, nofollow">
     <meta name="description"
         content="LA LOMADA DE PUIGGARI — Barrio Privado en Puiggari, Libertador San Martín, Entre Ríos. 84 lotes con respaldo jurídico y asesoramiento notarial.">
@@ -247,7 +302,7 @@
         </button>
     </div>
 
-    <!-- Sin tracking.js: esta versión no suma a las estadísticas -->
+    <!-- tracking.js se carga arriba solo para visitantes de la prueba A/B (variante B) -->
     <script src="nueva.js"></script>
 </body>
 

@@ -1,7 +1,8 @@
 /* ============================================
    LA LOMADA DE PUIGGARI — Nuevo diseño (versión de prueba)
    Menú, WhatsApp, animaciones y visor de fotos.
-   No registra estadísticas: no llama a lalomadaTrackClick ni carga tracking.js.
+   Los clicks se registran solo si se cargó tracking.js (visitantes de la prueba A/B,
+   no la vista previa del panel).
    ============================================ */
 
 (function () {
@@ -22,6 +23,10 @@
       if (!el) return;
       el.addEventListener('click', function (e) {
         e.preventDefault();
+        // Mismos IDs de botón que la A, así se comparan en el panel
+        if (typeof window.lalomadaTrackClick === 'function') {
+          window.lalomadaTrackClick(id);
+        }
         openWhatsApp();
       });
     });

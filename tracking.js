@@ -25,6 +25,14 @@ try {
   // En caso de bloqueadores o entornos sin soporte de Analytics
 }
 
+// Prueba A/B: la página que carga este archivo indica qué diseño vio el visitante
+// (A = landing actual, B = nueva). Si la página está por redirigir a la B, no se registra nada:
+// la visita la registra la B.
+const VARIANT = window.LALOMADA_VARIANT === 'A' || window.LALOMADA_VARIANT === 'B' ? window.LALOMADA_VARIANT : null;
+const SKIP = !!window.LALOMADA_REDIRECTING;
+const withVariant = (data) => VARIANT ? { ...data, variant: VARIANT } : data;
+const withoutVariant = ({ variant, ...rest }) => rest;
+
 const IP_SALT = 'lalomada-puiggari';
 const IP_SERVICES = [
   { url: 'https://api.ipify.org?format=json', parse: (r) => r.json().then((d) => d.ip) },
@@ -144,7 +152,19 @@ function isExcludedVisitor() {
   return excludedPromise;
 }
 
+// Si las reglas publicadas todavía no aceptan el campo "variant", Firestore rechaza
+// con permission-denied: se reintenta sin él para no perder el registro.
+async function writeWithFallback(write, data) {
+  try {
+    await write(data);
+  } catch (e) {
+    if (!(e && e.code === 'permission-denied' && 'variant' in data)) throw e;
+    await write(withoutVariant(data));
+  }
+}
+
 async function record(collection, extra) {
+  if (SKIP) return;
   if (await isExcludedVisitor()) return;
   // sessionStorage (no localStorage): si se borran los datos desde el panel,
   // en la próxima sesión la IP se vuelve a registrar
@@ -156,11 +176,11 @@ async function record(collection, extra) {
   if (local && local.getItem(flagKey(collection)) === ipHash) return;
 
   try {
-    await setDoc(doc(db, collection, ipHash), {
+    await writeWithFallback((data) => setDoc(doc(db, collection, ipHash), data), withVariant({
       ts: serverTimestamp(),
       day: today(),
       ...extra
-    });
+    }));
   } catch (e) {
     // permission-denied = esta IP ya estaba registrada (es lo esperado)
     if (e && e.code !== 'permission-denied') {
@@ -174,16 +194,17 @@ async function record(collection, extra) {
 // Historial completo: guarda cada acceso/click (no solo el primero por IP),
 // con el hash de la IP para poder cruzar accesos con clicks
 async function log(name, extra) {
+  if (SKIP) return true;
   if (await isExcludedVisitor()) return true; // "ok": no hay nada que reintentar
   const ipHash = await getIpHash();
   if (!ipHash) return false;
   try {
-    await addDoc(collection(db, name), {
+    await writeWithFallback((data) => addDoc(collection(db, name), data), withVariant({
       ipHash,
       ts: serverTimestamp(),
       day: today(),
       ...extra
-    });
+    }));
     return true;
   } catch (e) {
     console.warn('[stats]', e);
@@ -220,7 +241,9 @@ function detectSource() {
   const utmMedium = (params.get('utm_medium') || '').toLowerCase();
   const ua = navigator.userAgent || '';
   let host = '';
-  try { host = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) {}
+  // En la B se usa el referrer que tenía la A antes de redirigir (si no, figuraría el propio sitio)
+  const ref = typeof window.LALOMADA_REFERRER === 'string' ? window.LALOMADA_REFERRER : document.referrer;
+  try { host = ref ? new URL(ref).hostname : ''; } catch (e) {}
 
   // Los utm viajan con el link: si alguien copia el link de la bio o de un anuncio y lo
   // manda por WhatsApp, llega con utm_source=ig aunque no venga de Instagram. Por eso los
@@ -268,7 +291,7 @@ function linkParams() {
 
 const referrer = detectSource().slice(0, 100);
 const utm = linkParams();
-getGeo().then((geo) => {
+if (!SKIP) getGeo().then((geo) => {
   record('visits', { referrer, ...geo });
 
   // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro

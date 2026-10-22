@@ -20,6 +20,11 @@ service cloud.firestore {
         && (!('lon' in data) || (data.lon is number && data.lon >= -180 && data.lon <= 180));
     }
 
+    // Prueba A/B (opcional): qué diseño vio el visitante. A = landing actual, B = nueva
+    function validVariant(data) {
+      return !('variant' in data) || data.variant in ['A', 'B'];
+    }
+
     // El ID del documento es el SHA-256 de la IP del visitante.
     // Solo se permite CREAR: si la IP ya existe, el intento se
     // trata como "update" y se rechaza → 1 registro por IP.
@@ -27,13 +32,14 @@ service cloud.firestore {
     match /visits/{ipHash} {
       allow read: if isAdmin();
       allow create: if ipHash.matches('^[a-f0-9]{64}$')
-        && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon'])
+        && request.resource.data.keys().hasOnly(['ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon', 'variant'])
         && request.resource.data.ts == request.time
         && request.resource.data.day is string
         && request.resource.data.day.size() == 10
         && request.resource.data.referrer is string
         && request.resource.data.referrer.size() <= 100
-        && validGeo(request.resource.data);
+        && validGeo(request.resource.data)
+        && validVariant(request.resource.data);
       allow update: if false;
       allow delete: if isAdmin();
     }
@@ -41,12 +47,13 @@ service cloud.firestore {
     match /clicks/{ipHash} {
       allow read: if isAdmin();
       allow create: if ipHash.matches('^[a-f0-9]{64}$')
-        && request.resource.data.keys().hasOnly(['ts', 'day', 'button'])
+        && request.resource.data.keys().hasOnly(['ts', 'day', 'button', 'variant'])
         && request.resource.data.ts == request.time
         && request.resource.data.day is string
         && request.resource.data.day.size() == 10
         && request.resource.data.button is string
-        && request.resource.data.button.size() <= 40;
+        && request.resource.data.button.size() <= 40
+        && validVariant(request.resource.data);
       allow update: if false;
       allow delete: if isAdmin();
     }
@@ -56,7 +63,8 @@ service cloud.firestore {
 
     match /visitLog/{id} {
       allow read: if isAdmin();
-      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon', 'utm'])
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon', 'utm', 'variant'])
+        && validVariant(request.resource.data)
         && (!('utm' in request.resource.data) || (request.resource.data.utm is string && request.resource.data.utm.size() <= 200))
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
@@ -72,7 +80,8 @@ service cloud.firestore {
 
     match /clickLog/{id} {
       allow read: if isAdmin();
-      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'button'])
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'button', 'variant'])
+        && validVariant(request.resource.data)
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
         && request.resource.data.ts == request.time
