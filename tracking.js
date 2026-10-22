@@ -156,10 +156,10 @@ function isExcludedVisitor() {
 // con permission-denied: se reintenta sin él para no perder el registro.
 async function writeWithFallback(write, data) {
   try {
-    await write(data);
+    return await write(data);
   } catch (e) {
     if (!(e && e.code === 'permission-denied' && 'variant' in data)) throw e;
-    await write(withoutVariant(data));
+    return await write(withoutVariant(data));
   }
 }
 
@@ -192,20 +192,21 @@ async function record(collection, extra) {
 }
 
 // Historial completo: guarda cada acceso/click (no solo el primero por IP),
-// con el hash de la IP para poder cruzar accesos con clicks
+// con el hash de la IP para poder cruzar accesos con clicks.
+// Devuelve el ID del documento creado (o true si no había que registrar nada, false si falló).
 async function log(name, extra) {
   if (SKIP) return true;
   if (await isExcludedVisitor()) return true; // "ok": no hay nada que reintentar
   const ipHash = await getIpHash();
   if (!ipHash) return false;
   try {
-    await writeWithFallback((data) => addDoc(collection(db, name), data), withVariant({
+    const ref = await writeWithFallback((data) => addDoc(collection(db, name), data), withVariant({
       ipHash,
       ts: serverTimestamp(),
       day: today(),
       ...extra
     }));
-    return true;
+    return ref && ref.id ? ref.id : true;
   } catch (e) {
     console.warn('[stats]', e);
     return false;
@@ -293,16 +294,71 @@ function linkParams() {
   return parts.join('&').slice(0, 200);
 }
 
+// ---- Tiempo en la página ----
+// Cuenta los segundos con la página en pantalla (si cambia de app o se va a WhatsApp, se pausa)
+// y registra hasta qué marca llegó cada acceso. Cada marca es un documento propio
+// ("<id del acceso>_<segundos>") que solo se puede crear una vez: aunque el celular cierre
+// la página sin avisar, las marcas ya alcanzadas quedan guardadas.
+// La marca 0 indica que el acceso se está midiendo (si no pasa de ahí: menos de 10 s)
+const TIME_MARKS = [0, 10, 30, 60, 120, 300, 600];
+const TIME_KEY = 'lalomada_time';
+let resolveVisitId;
+const visitIdPromise = new Promise((resolve) => { resolveVisitId = resolve; });
+
+async function sendTimeMark(sec) {
+  const visitId = await visitIdPromise;
+  if (!visitId) return;
+  const ipHash = await getIpHash();
+  if (!ipHash) return;
+  try {
+    await setDoc(doc(db, 'sessionTime', visitId + '_' + sec), withVariant({
+      visitId, ipHash, sec, ts: serverTimestamp(), day: today()
+    }));
+  } catch (e) {
+    // permission-denied = esa marca ya estaba registrada (por ejemplo, tras recargar)
+    if (e && e.code !== 'permission-denied') console.warn('[stats]', e);
+  }
+}
+
+function startTimer() {
+  const session = safeStorage('sessionStorage');
+  let st = { sec: 0, sent: 0 };
+  try {
+    const saved = JSON.parse((session && session.getItem(TIME_KEY)) || 'null');
+    if (saved && typeof saved.sec === 'number' && typeof saved.sent === 'number') st = saved;
+  } catch (e) {}
+  if (st.sent >= TIME_MARKS.length) return;
+  const timer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    st.sec++;
+    while (st.sent < TIME_MARKS.length && st.sec >= TIME_MARKS[st.sent]) {
+      sendTimeMark(TIME_MARKS[st.sent]);
+      st.sent++;
+    }
+    try { if (session) session.setItem(TIME_KEY, JSON.stringify(st)); } catch (e) {}
+    if (st.sent >= TIME_MARKS.length) clearInterval(timer);
+  }, 1000);
+}
+
 const referrer = detectSource().slice(0, 100);
 const utm = linkParams();
-if (!SKIP) getGeo().then((geo) => {
-  record('visits', { referrer, ...geo });
+if (!SKIP) {
+  startTimer();
+  getGeo().then((geo) => {
+    record('visits', { referrer, ...geo });
 
-  // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
-  const session = safeStorage('sessionStorage');
-  if (!session || !session.getItem('lalomada_visitlog_ok')) {
-    log('visitLog', { referrer, ...geo, ...(utm ? { utm } : {}) }).then((ok) => {
-      if (ok && session) session.setItem('lalomada_visitlog_ok', '1');
-    });
-  }
-});
+    // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
+    const session = safeStorage('sessionStorage');
+    if (!session || !session.getItem('lalomada_visitlog_ok')) {
+      log('visitLog', { referrer, ...geo, ...(utm ? { utm } : {}) }).then((res) => {
+        if (res && session) session.setItem('lalomada_visitlog_ok', '1');
+        const visitId = typeof res === 'string' ? res : null;
+        if (visitId && session) session.setItem('lalomada_visit_id', visitId);
+        resolveVisitId(visitId);
+      });
+    } else {
+      // Recarga en la misma sesión: el tiempo sigue sumando al mismo acceso
+      resolveVisitId(session.getItem('lalomada_visit_id'));
+    }
+  });
+}

@@ -93,6 +93,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Tiempo en la página: una marca por acceso y por tiempo alcanzado (0 = empezó a medirse,
+    // 10 s, 30 s, 1, 2, 5 y 10 min).
+    // El ID es "<id del acceso en visitLog>_<segundos>", así cada marca se guarda una sola vez.
+    match /sessionTime/{id} {
+      allow read: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['visitId', 'ipHash', 'sec', 'ts', 'day', 'variant'])
+        && request.resource.data.visitId is string
+        && request.resource.data.visitId.matches('^[A-Za-z0-9]{10,40}$')
+        && request.resource.data.sec in [0, 10, 30, 60, 120, 300, 600]
+        && id == request.resource.data.visitId + '_' + string(request.resource.data.sec)
+        && request.resource.data.ipHash is string
+        && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && validVariant(request.resource.data);
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
     // Visitantes ocultados desde el panel (por ejemplo, los dueños del sitio).
     // El ID es el mismo hash de IP; los datos no se borran, solo no se cuentan.
     match /hiddenIps/{ipHash} {

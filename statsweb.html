@@ -290,6 +290,8 @@
         .tag.win { color: var(--accent); background: var(--accent-light); }
         .ab-verdict { font-size: .85rem; margin: 14px 0 6px; }
         .ab-tile .meta b { color: var(--text); font-weight: 600; }
+        .time-grid { margin: 20px 0 0; gap: 32px; grid-template-columns: 1fr 1.3fr; }
+        .sub-h { font-size: .85rem; margin-bottom: 12px; }
         .ab-tile .ab-secondary { font-size: .74rem; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
 
         /* ---- Visitantes que volvieron ---- */
@@ -451,6 +453,35 @@
             <p class="section-foot">Conversión por visitante = visitantes que tocaron un botón de WhatsApp ÷ visitantes (cada IP cuenta una vez, aunque entre muchas veces). La conversión por accesos se muestra como dato secundario. Solo cuentan los datos desde que empezó la prueba; los anteriores no tienen diseño asignado.</p>
         </section>
 
+        <section class="card ab">
+            <div class="section-head">
+                <h2>Tiempo en la página</h2>
+                <p>Solo cuenta el tiempo con la página en pantalla (si cambia de app o va a WhatsApp, se pausa)</p>
+            </div>
+            <p class="empty" id="timeEmpty">Todavía no hay accesos medidos. Empieza a contar cuando se publique esta función.</p>
+            <div id="timeBody" hidden>
+                <div class="social-grid" id="timeKpis"></div>
+                <div class="grid-2 time-grid">
+                    <div>
+                        <h2 class="sub-h">Cuánto se quedan</h2>
+                        <div class="rows" id="timeDist"></div>
+                    </div>
+                    <div>
+                        <h2 class="sub-h">Por diseño y por origen</h2>
+                        <div class="table-scroll">
+                            <table class="ip-table">
+                                <thead><tr>
+                                    <th></th><th class="num">Medidos</th><th class="num">Menos de 10 s</th><th class="num">1 min o más</th><th>Tiempo típico</th>
+                                </tr></thead>
+                                <tbody id="timeRows"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="section-foot">Tiempo por acceso. Se registra en marcas (10 s, 30 s, 1, 2, 5 y 10 min), así no se pierde aunque el celular cierre la página sin avisar. "Tiempo típico" es la mediana: la mitad de los accesos se quedó al menos ese tiempo. Si muchos accesos de la pauta se van en menos de 10 s, son clicks sin interés real.</p>
+        </section>
+
         <section class="card export">
             <div class="export-head">
                 <h2>Descargar Excel</h2>
@@ -587,9 +618,9 @@
                 <table class="ip-table">
                     <thead><tr>
                         <th></th><th>Fecha y hora</th><th>Medio</th><th>Diseño</th><th>Ciudad</th><th>Provincia</th><th>País</th>
-                        <th class="num">Visita</th><th>¿Entró a WhatsApp?</th><th>ID visitante</th><th>Parámetros del link</th>
+                        <th class="num">Visita</th><th>Tiempo</th><th>¿Entró a WhatsApp?</th><th>ID visitante</th><th>Parámetros del link</th>
                     </tr></thead>
-                    <tbody id="allRows"><tr><td colspan="11" class="empty">Cargando…</td></tr></tbody>
+                    <tbody id="allRows"><tr><td colspan="12" class="empty">Cargando…</td></tr></tbody>
                 </table>
             </div>
             <div class="list-more"><button class="btn-ghost" id="allMore" hidden>Mostrar más</button></div>
@@ -704,7 +735,8 @@
         const state = { visits: null, clicks: null };
         // visitLog / clickLog: historial completo (cada acceso y cada click)
         // hidden: visitantes ocultados desde el panel (Map id → { name, by, ts })
-        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null, hidden: null };
+        // sessionTime: marcas de tiempo en la página de cada acceso (ver tracking.js)
+        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null, hidden: null, sessionTime: null };
 
         // Datos que no se cuentan: robots que revisan la página desde San José, California (EE. UU.).
         // Se excluyen sus visitas y también los clicks y accesos de esas mismas IPs.
@@ -879,6 +911,77 @@
                 : '<tr><td colspan="5" class="empty">Sin datos todavía.</td></tr>';
         }
 
+        // ---- Tiempo en la página ----
+        // Cada acceso registra hasta qué marca llegó con la página en pantalla (tracking.js).
+        // Los accesos sin ninguna marca son anteriores a esta función: no se cuentan.
+        const TIME_STEPS = [0, 10, 30, 60, 120, 300, 600];
+        const TIME_LABELS = { 0: 'Menos de 10 s', 10: '10 a 30 s', 30: '30 s a 1 min', 60: '1 a 2 min', 120: '2 a 5 min', 300: '5 a 10 min', 600: 'Más de 10 min' };
+        const timeLabel = (sec) => sec === undefined ? '—' : TIME_LABELS[sec];
+
+        // a.sec = marca más alta alcanzada por el acceso, o undefined si no se midió
+        function attachTimes(accesses) {
+            const best = new Map();
+            (raw.sessionTime || []).forEach((t) => {
+                if (!best.has(t.visitId) || t.sec > best.get(t.visitId)) best.set(t.visitId, t.sec);
+            });
+            accesses.forEach((a) => { a.sec = a._logId && best.has(a._logId) ? best.get(a._logId) : undefined; });
+        }
+
+        function timeSummary(list) {
+            const secs = list.filter((a) => a.sec !== undefined).map((a) => a.sec).sort((x, y) => x - y);
+            const n = secs.length;
+            return {
+                n,
+                short: secs.filter((s) => s < 10).length,
+                long: secs.filter((s) => s >= 60).length,
+                median: n ? secs[Math.floor((n - 1) / 2)] : undefined,
+                dist: TIME_STEPS.map((s) => [s, secs.filter((x) => x === s).length])
+            };
+        }
+
+        // Filas de comparación: A, B y cada origen
+        function timeGroups(accesses) {
+            const groups = [];
+            ['A', 'B'].forEach((v) => {
+                const t = timeSummary(accesses.filter((a) => a.variant === v));
+                if (t.n) groups.push([AB_NAMES[v], t]);
+            });
+            countBy(accesses.filter((a) => a.sec !== undefined).map((a) => ({ s: sourceName(a.referrer) })), 's')
+                .forEach(([k]) => groups.push([k, timeSummary(accesses.filter((a) => sourceName(a.referrer) === k))]));
+            return groups;
+        }
+
+        function renderTime(accesses) {
+            if (!accesses) return;
+            const t = timeSummary(accesses);
+            $('timeEmpty').hidden = !!t.n;
+            $('timeBody').hidden = !t.n;
+            if (!t.n) return;
+            $('timeKpis').innerHTML = [
+                ['Accesos medidos', fmt.format(t.n), 'con la página en pantalla'],
+                ['Se fueron en menos de 10 s', pct(t.short, t.n), `${plural(t.short, 'acceso')}`],
+                ['Se quedaron 1 min o más', pct(t.long, t.n), `${plural(t.long, 'acceso')}`],
+                ['Tiempo típico', timeLabel(t.median), 'la mitad se quedó al menos esto']
+            ].map(([title, big, sub]) => `<div class="social-tile">
+                    <div class="name">${title}</div>
+                    <div class="big">${big}</div>
+                    <div class="meta">${sub}</div>
+                </div>`).join('');
+            const max = Math.max(1, ...t.dist.map(([, n]) => n));
+            $('timeDist').innerHTML = t.dist.map(([s, n]) => `
+                <div>
+                    <div class="row-top"><span>${TIME_LABELS[s]}</span><b>${fmt.format(n)} · ${pct(n, t.n)}</b></div>
+                    <div class="meter${s >= 60 ? ' green' : ''}"><div style="width:${(n / max) * 100}%"></div></div>
+                </div>`).join('');
+            $('timeRows').innerHTML = timeGroups(accesses).map(([k, g]) => `<tr>
+                    <td>${escapeHtml(k)}</td>
+                    <td class="num">${fmt.format(g.n)}</td>
+                    <td class="num">${pct(g.short, g.n)}</td>
+                    <td class="num">${pct(g.long, g.n)}</td>
+                    <td>${timeLabel(g.median)}</td>
+                </tr>`).join('');
+        }
+
         function renderSocial(visits, accesses) {
             const clickedIds = new Set(state.clicks.map((c) => c._id));
             $('social').innerHTML = SOCIAL_SOURCES.map((s) => {
@@ -908,7 +1011,7 @@
         function repeatDetail(list, hasClicks) {
             return `<tr class="ip-detail"><td colspan="10">
                 <table>
-                    <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>Parámetros del link</th><th>¿Entró a WhatsApp?</th></tr></thead>
+                    <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>Tiempo</th><th>Parámetros del link</th><th>¿Entró a WhatsApp?</th></tr></thead>
                     <tbody>${list.map((a, i) => {
                         const place = [a.city, (a.country || a.region) ? provinceName(a) : null].filter(Boolean).join(' · ') || '—';
                         const wa = !hasClicks ? '—'
@@ -920,6 +1023,7 @@
                             <td>${eventWhen(a)}</td>
                             <td>${escapeHtml(sourceName(a.referrer))}</td>
                             <td>${escapeHtml(place)}</td>
+                            <td>${timeLabel(a.sec)}</td>
                             <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
                             <td>${wa}</td>
                         </tr>`;
@@ -976,12 +1080,13 @@
                         <td>${a.variant === 'A' || a.variant === 'B' ? a.variant : '—'}</td>
                         ${locCells(a)}
                         <td class="num">${nth} de ${totals[a.ip]}</td>
+                        <td>${timeLabel(a.sec)}</td>
                         <td>${wa}</td>
                         <td class="ip-id">${escapeHtml(shortId(a.ip))}${ownTag(a.ip)}</td>
                         <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="11" class="empty">Sin accesos todavía.</td></tr>';
+                : '<tr><td colspan="12" class="empty">Sin accesos todavía.</td></tr>';
 
             const left = rows.length - shown.length;
             $('allMore').hidden = left <= 0;
@@ -1190,8 +1295,10 @@
                 $('kAccessSub').textContent = `incluye repetidos · ${fmt.format(accesses.filter((a) => a.day === today).length)} hoy`;
             }
             if (accesses && allClicks) matchClicks(accesses, allClicks);
+            if (accesses) attachTimes(accesses);
             renderSocial(visits, accesses);
             renderAB(accesses, allClicks);
+            renderTime(accesses);
             renderRepeat(accesses, allClicks);
             renderHidden();
             if (accesses) {
@@ -1249,7 +1356,8 @@
           ['visitLog', 'clickLog'].forEach((name) => {
             onSnapshot(
                 collection(db, name),
-                (snap) => { raw[name] = snap.docs.map((d) => d.data()); render(); },
+                // _logId: con él se cruza cada acceso con sus marcas de tiempo
+                (snap) => { raw[name] = snap.docs.map((d) => ({ _logId: d.id, ...d.data() })); render(); },
                 showError
             );
           });
@@ -1267,6 +1375,12 @@
                   applyExclusions();
                   render();
               }
+          );
+          onSnapshot(
+              collection(db, 'sessionTime'),
+              (snap) => { raw.sessionTime = snap.docs.map((d) => d.data()); render(); },
+              // Sin las reglas publicadas el panel funciona igual, sin datos de tiempo
+              (err) => { console.warn('[sessionTime]', err); raw.sessionTime = []; render(); }
           );
           loadOwnIp();
         }
@@ -1681,7 +1795,7 @@
 
         async function loadEvents(logName, unique, from, to) {
             const snap = await getDocs(query(collection(db, logName), where('day', '>=', from), where('day', '<=', to)));
-            return mergeEvents(snap.docs.map((d) => d.data()), unique);
+            return mergeEvents(snap.docs.map((d) => ({ _logId: d.id, ...d.data() })), unique);
         }
 
         // Asigna a cada acceso los clicks de la misma IP hechos entre ese acceso y el siguiente
@@ -1719,6 +1833,7 @@
                 loadEvents('clickLog', clicks, from, to)
             ]);
             matchClicks(accesses, allClicks);
+            attachTimes(accesses);
             const accessesWithClick = accesses.filter((a) => a.clicks.length).length;
 
             const days = daysBetween(from, to);
@@ -1814,6 +1929,17 @@
                 if (abv.text) { ws.getCell(r, 1).value = abv.text; ws.getCell(r, 1).font = { bold: true, size: 10 }; r++; }
             }
 
+            // Tiempo en la página (solo accesos medidos)
+            const tAll = timeSummary(accesses);
+            const timeCols = [{ header: '' }, { header: 'Accesos medidos', ...NUM }, { header: 'Menos de 10 s', ...PCT }, { header: '1 min o más', ...PCT }, { header: 'Tiempo típico', align: 'left' }];
+            const timeRow = (k, g) => [k, g.n, rate(g.short, g.n), rate(g.long, g.n), timeLabel(g.median)];
+            if (tAll.n) {
+                r = sectionTitle(ws, r + 1, 'Tiempo en la página');
+                r = writeTable(ws, r, [{ header: 'Cuánto se quedan' }, { header: 'Accesos', ...NUM }, { header: '% de los medidos', ...PCT }],
+                    tAll.dist.map(([s, n]) => [TIME_LABELS[s], n, rate(n, tAll.n)]));
+                r = writeTable(ws, r + 1, timeCols, [timeRow('Total', tAll), ...timeGroups(accesses).map(([k, g]) => timeRow(k, g))]);
+            }
+
             r = sectionTitle(ws, r + 1, 'Clicks por botón');
             const byButton = countBy(clicks, 'button');
             r = writeTable(ws, r,
@@ -1863,6 +1989,7 @@
                 'Un acceso "entró a WhatsApp" si desde esa misma IP se tocó un botón antes del siguiente acceso.',
                 '"ID visitante": código anónimo derivado de la IP; las filas con el mismo ID son la misma IP.',
                 'Ubicación aproximada según la IP. Con datos móviles suele figurar Buenos Aires aunque la persona esté en otra provincia.',
+                'Tiempo en la página: solo con la página en pantalla, en marcas (10 s, 30 s, 1, 2, 5 y 10 min). Los accesos anteriores a esta función no tienen dato.',
                 raw.hidden && raw.hidden.size ? `No incluye a los ${raw.hidden.size} visitante(s) ocultos desde el panel (ver hoja "Ocultos").` : ''
             ].filter(Boolean));
 
@@ -1925,6 +2052,12 @@
                         { header: 'Visitantes B', ...NUM }, { header: 'Entraron B', ...NUM }, { header: 'Conversión B', ...PCT }],
                     srcRows.length ? srcRows : [['Sin datos', 0, 0, null, 0, 0, null]]);
 
+                const tAB = ['A', 'B'].map((v) => [AB_NAMES[v], timeSummary(accesses.filter((a) => a.variant === v))]).filter(([, g]) => g.n);
+                if (tAB.length) {
+                    ra = sectionTitle(wsAB, ra + 1, 'Tiempo en la página');
+                    ra = writeTable(wsAB, ra, timeCols, tAB.map(([k, g]) => timeRow(k, g)));
+                }
+
                 ra = sectionTitle(wsAB, ra + 1, 'Clicks por botón');
                 const buttons = countBy(allClicks.filter((c) => c.variant), 'button');
                 ra = writeTable(wsAB, ra,
@@ -1970,7 +2103,8 @@
                 { header: 'Origen', width: 34, align: 'left' },
                 { header: 'Diseño', width: 9, align: 'left' },
                 { header: 'Primer acceso', ...DT, width: 18 },
-                { header: 'Último acceso', ...DT, width: 18 }
+                { header: 'Último acceso', ...DT, width: 18 },
+                { header: 'Mayor tiempo en la página', width: 24, align: 'left' }
             ], visitorRows.map(({ ip, list }) => [
                 shortId(ip),
                 ...locText(lastLoc(list, ip)),
@@ -1980,7 +2114,8 @@
                 [...new Set(list.map((a) => sourceName(a.referrer)))].join(', '),
                 [...new Set(list.map((a) => a.variant).filter(Boolean))].join(', ') || '—',
                 when(list[0]),
-                when(list[list.length - 1])
+                when(list[list.length - 1]),
+                timeLabel(list.reduce((m, a) => a.sec !== undefined && (m === undefined || a.sec > m) ? a.sec : m, undefined))
             ]));
             visitorRows.forEach(({ ip }, i) => { if (clicksByIp[ip]) fillRow(wsVis, i + 2, XL.accentLight); });
 
@@ -2001,13 +2136,14 @@
                 { header: '¿Entró a WhatsApp?', width: 20, align: 'left' },
                 { header: 'Hora de entrada a WhatsApp', ...DT, width: 26 },
                 { header: 'Visita', width: 10 },
+                { header: 'Tiempo en la página', width: 19, align: 'left' },
                 { header: 'ID visitante', width: 14 },
                 { header: 'Parámetros del link', width: 44, align: 'left' }
             ], events.map(({ e, kind }) => {
                 if (kind === 'click') {
                     // El click no guarda ubicación: se toma la del acceso al que pertenece
                     const a = e.access || {};
-                    return [when(e), 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, '', shortId(e.ip), ''];
+                    return [when(e), 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, '', '', shortId(e.ip), ''];
                 }
                 const first = e.clicks[0];
                 const entered = first ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '') : 'No';
@@ -2015,6 +2151,7 @@
                     when(e), 'Acceso a la web', referrerName(e.referrer), e.variant || '—', provinceName(e), e.city || '—', entered,
                     first ? when(first) : null,
                     `${nth.get(e)} de ${seen[e.ip]}`,
+                    timeLabel(e.sec),
                     shortId(e.ip),
                     e.utm || ''
                 ];
@@ -2117,9 +2254,10 @@
         });
 
         // ---- Eliminar datos ----
-        // Borra los registros "1 por IP" (visits, clicks) y el historial (visitLog, clickLog)
-        // cuya hora cae en el período. Al borrar el registro de una IP, si vuelve a entrar se registra de nuevo.
-        const DELETE_COLLECTIONS = ['visits', 'clicks', 'visitLog', 'clickLog'];
+        // Borra los registros "1 por IP" (visits, clicks), el historial (visitLog, clickLog) y las marcas
+        // de tiempo (sessionTime) cuya hora cae en el período. Al borrar el registro de una IP, si vuelve
+        // a entrar se registra de nuevo.
+        const DELETE_COLLECTIONS = ['visits', 'clicks', 'visitLog', 'clickLog', 'sessionTime'];
         const BATCH_SIZE = 400; // Firestore admite hasta 500 operaciones por lote
         let deleting = false;
 
@@ -2156,8 +2294,8 @@
             try {
                 const snaps = await Promise.all(DELETE_COLLECTIONS.map((name) =>
                     getDocs(query(collection(db, name), where('ts', '>=', from), where('ts', '<=', to)))));
-                const [nVisits, nClicks, nAccess, nClickLog] = snaps.map((s) => s.size);
-                const total = nVisits + nClicks + nAccess + nClickLog;
+                const [nVisits, nClicks, nAccess, nClickLog, nTime] = snaps.map((s) => s.size);
+                const total = nVisits + nClicks + nAccess + nClickLog + nTime;
                 const period = `${dateTimeFmt.format(from)} a ${dateTimeFmt.format(to)}`;
                 if (!total) { deleteMsg(`No hay datos entre ${period}.`); return; }
 
@@ -2166,7 +2304,8 @@
                     `· ${nVisits} visitante(s) único(s)\n` +
                     `· ${nClicks} click(s) único(s) a WhatsApp\n` +
                     `· ${nAccess} acceso(s) del historial\n` +
-                    `· ${nClickLog} click(s) del historial\n\n` +
+                    `· ${nClickLog} click(s) del historial\n` +
+                    `· ${nTime} marca(s) de tiempo en la página\n\n` +
                     'Esas IPs se vuelven a registrar si entran de nuevo. No se puede deshacer. ¿Continuar?');
                 if (!ok) { deleteMsg('Cancelado.'); return; }
 
