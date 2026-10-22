@@ -83,7 +83,7 @@
 
         .kpis {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 16px;
             margin-bottom: 16px;
         }
@@ -252,6 +252,27 @@
         .map-rank > div:hover .row-top span { color: var(--accent); }
         .map-foot { font-size: .75rem; color: var(--text-light); margin-top: 14px; }
 
+        /* ---- Instagram y Facebook ---- */
+        .social, .repeat { margin-bottom: 16px; }
+        .section-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 14px; }
+        .section-head h2 { margin-bottom: 0; }
+        .section-head p { font-size: .78rem; color: var(--text-light); }
+        .social-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .social-tile { background: var(--bg); border-radius: 10px; padding: 14px 16px; }
+        .social-tile .name { font-weight: 600; font-size: .9rem; display: flex; align-items: center; gap: 8px; }
+        .social-tile .big { font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 4px; }
+        .social-tile .meta { font-size: .78rem; color: var(--text-light); }
+        .tag { font-size: .68rem; font-weight: 600; color: var(--gold); background: var(--gold-light); border-radius: 4px; padding: 1px 6px; }
+        .section-foot { font-size: .75rem; color: var(--text-light); margin-top: 12px; }
+
+        /* ---- Visitantes que volvieron ---- */
+        .table-scroll { overflow: auto; max-height: 560px; }
+        .ip-table th, .ip-table td { padding: 8px 10px; white-space: nowrap; }
+        .ip-table th:first-child, .ip-table td:first-child { padding-left: 0; }
+        .ip-table th { position: sticky; top: 0; background: var(--card); }
+        .ip-table .num { text-align: right; }
+        .ip-id { font-family: ui-monospace, Consolas, monospace; font-size: .8rem; }
+
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
         .login { display: none; min-height: calc(100vh - 96px); align-items: center; justify-content: center; }
@@ -268,6 +289,7 @@
 
         @media (max-width: 860px) {
             .kpis { grid-template-columns: repeat(2, 1fr); }
+            .social-grid { grid-template-columns: repeat(2, 1fr); }
             .grid-2 { grid-template-columns: 1fr; }
             .map-layout { grid-template-columns: 1fr; }
             #map { height: 480px; }
@@ -314,6 +336,11 @@
                 <div class="kpi-sub">1 por IP · histórico</div>
             </div>
             <div class="card">
+                <div class="kpi-title">Accesos a la web</div>
+                <div class="kpi-value" id="kAccess">—</div>
+                <div class="kpi-sub" id="kAccessSub">incluye repetidos</div>
+            </div>
+            <div class="card">
                 <div class="kpi-title">Clicks a WhatsApp</div>
                 <div class="kpi-value" id="kClicks">—</div>
                 <div class="kpi-sub">1 por IP · histórico</div>
@@ -328,6 +355,15 @@
                 <div class="kpi-value" id="kToday">—</div>
                 <div class="kpi-sub" id="kTodaySub">visitantes nuevos</div>
             </div>
+        </section>
+
+        <section class="card social">
+            <div class="section-head">
+                <h2>Instagram y Facebook</h2>
+                <p>Ingresos = accesos a la web (1 por sesión, incluye repetidos) · histórico</p>
+            </div>
+            <div class="social-grid" id="social"></div>
+            <p class="section-foot" id="socialFoot"></p>
         </section>
 
         <section class="card export">
@@ -412,6 +448,24 @@
             </div>
         </section>
 
+        <section class="card repeat">
+            <div class="section-head">
+                <h2>Visitantes que volvieron</h2>
+                <p id="repeatSub">IPs con más de 1 acceso a la web</p>
+            </div>
+            <div class="table-scroll">
+                <table class="ip-table">
+                    <thead><tr>
+                        <th>ID visitante</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                        <th class="num">Accesos</th><th class="num">Clicks a WhatsApp</th><th>Origen</th>
+                        <th>Primer acceso</th><th>Último acceso</th>
+                    </tr></thead>
+                    <tbody id="repeatRows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
+                </table>
+            </div>
+            <p class="section-foot">El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
+        </section>
+
         <section class="card export danger-zone">
             <div class="export-head">
                 <h2>Eliminar datos</h2>
@@ -429,7 +483,7 @@
             <div class="export-msg" id="deleteMsg"></div>
         </section>
 
-        <p class="note">Cada IP se cuenta una sola vez: si la misma persona entra o toca el botón varias veces, se registra como 1. Los datos se actualizan en vivo. La ubicación es aproximada (según la IP) y solo existe para visitas nuevas.</p>
+        <p class="note">Visitantes únicos y clicks se cuentan una sola vez por IP: si la misma persona entra o toca el botón varias veces, se registra como 1. Los accesos a la web cuentan cada sesión del navegador (incluye repetidos). Los datos se actualizan en vivo. La ubicación es aproximada (según la IP) y solo existe para visitas nuevas.</p>
     </div>
 
     <div class="tip" id="tip"></div>
@@ -517,7 +571,8 @@
         };
 
         const state = { visits: null, clicks: null };
-        const raw = { visits: null, clicks: null };
+        // visitLog / clickLog: historial completo (cada acceso y cada click)
+        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null };
 
         // Datos que no se cuentan: robots que revisan la página desde San José, California (EE. UU.).
         // Se excluyen sus visitas y también los clicks y accesos de esas mismas IPs.
@@ -587,6 +642,82 @@
                 </div>`).join('');
         }
 
+        // Orígenes de Meta que se muestran por separado
+        const SOCIAL_SOURCES = [
+            { key: 'Instagram (pauta)', label: 'Instagram', paid: true },
+            { key: 'Instagram', label: 'Instagram', paid: false },
+            { key: 'Facebook (pauta)', label: 'Facebook', paid: true },
+            { key: 'Facebook', label: 'Facebook', paid: false }
+        ];
+        const plural = (n, word) => `${fmt.format(n)} ${word}${n === 1 ? '' : 's'}`;
+
+        function renderSocial(visits, accesses) {
+            const clickedIds = new Set(state.clicks.map((c) => c._id));
+            $('social').innerHTML = SOCIAL_SOURCES.map((s) => {
+                const v = visits.filter((x) => sourceName(x.referrer) === s.key);
+                const conv = v.filter((x) => clickedIds.has(x._id)).length;
+                const n = accesses ? accesses.filter((a) => sourceName(a.referrer) === s.key).length : null;
+                return `<div class="social-tile">
+                    <div class="name">${s.label}${s.paid ? '<span class="tag">Pauta</span>' : ''}</div>
+                    <div class="big">${n === null ? '—' : fmt.format(n)} <span class="meta">ingreso${n === 1 ? '' : 's'}</span></div>
+                    <div class="meta">${plural(v.length, 'visitante')} único${v.length === 1 ? '' : 's'}</div>
+                    <div class="meta">${fmt.format(conv)} entraron a WhatsApp · conversión ${pct(conv, v.length)}</div>
+                </div>`;
+            }).join('');
+            const unknown = visits.filter((x) => sourceName(x.referrer).startsWith('Facebook o Instagram')).length;
+            $('socialFoot').textContent = (unknown
+                ? `${plural(unknown, 'visitante')} llegaron desde una app de Meta sin poder distinguir si fue Facebook o Instagram (figuran en "De dónde llegan"). `
+                : '') + '"Pauta": el link del anuncio trae utm_medium=paid o utm_source=ig/fb.';
+        }
+
+        const eventWhen = (e) => e.ts ? dateTimeFmt.format(e.ts.toDate()) : displayDay(e.day);
+        function countryName(code) {
+            if (!code) return '—';
+            try { return countryNames.of(code); } catch (e) { return code; }
+        }
+
+        // IPs con más de un acceso: cuántas veces entraron, desde dónde y cuándo
+        function renderRepeat(accesses, allClicks) {
+            if (!accesses) return;
+            const byIp = new Map();
+            accesses.forEach((a) => {
+                if (!byIp.has(a.ip)) byIp.set(a.ip, []);
+                byIp.get(a.ip).push(a);
+            });
+            const clicksByIp = {};
+            (allClicks || []).forEach((c) => { clicksByIp[c.ip] = (clicksByIp[c.ip] || 0) + 1; });
+            const visitById = new Map(state.visits.map((v) => [v._id, v]));
+
+            const rows = [...byIp].filter(([, list]) => list.length > 1).map(([ip, list]) => ({
+                ip, list,
+                // ubicación del acceso más reciente que la tenga
+                loc: [...list].reverse().find((a) => a.country || a.region) || visitById.get(ip) || {}
+            })).sort((a, b) => b.list.length - a.list.length || b.list[b.list.length - 1].time - a.list[a.list.length - 1].time);
+
+            const repeatAccesses = rows.reduce((s, r) => s + r.list.length, 0);
+            $('repeatSub').textContent = rows.length
+                ? `${plural(rows.length, 'visitante')} con más de 1 acceso · ${plural(repeatAccesses, 'acceso')} en total`
+                : 'IPs con más de 1 acceso a la web';
+            $('repeatRows').innerHTML = rows.length
+                ? rows.map(({ ip, list, loc }) => {
+                    const located = loc.country || loc.region;
+                    const province = !located ? '—' : (loc.country && loc.country !== 'AR' ? loc.region || '—' : provinceName(loc));
+                    const sources = [...new Set(list.map((a) => sourceName(a.referrer)))].join(', ');
+                    return `<tr>
+                        <td class="ip-id">${escapeHtml(shortId(ip))}</td>
+                        <td>${escapeHtml(loc.city || '—')}</td>
+                        <td>${escapeHtml(province)}</td>
+                        <td>${escapeHtml(countryName(loc.country))}</td>
+                        <td class="num"><b>${fmt.format(list.length)}</b></td>
+                        <td class="num">${allClicks ? fmt.format(clicksByIp[ip] || 0) : '—'}</td>
+                        <td>${escapeHtml(sources)}</td>
+                        <td>${eventWhen(list[0])}</td>
+                        <td>${eventWhen(list[list.length - 1])}</td>
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="9" class="empty">Todavía nadie entró más de una vez.</td></tr>';
+        }
+
         function lastDays(n) {
             const days = [];
             for (let i = n - 1; i >= 0; i--) {
@@ -627,6 +758,16 @@
             const cToday = clicks.filter((d) => d.day === today).length;
             $('kToday').textContent = fmt.format(vToday);
             $('kTodaySub').textContent = `visitantes nuevos · ${fmt.format(cToday)} click${cToday === 1 ? '' : 's'}`;
+
+            // Mismo criterio que el Excel: historial completo + registros viejos sin historial
+            const accesses = raw.visitLog ? mergeEvents(raw.visitLog, visits) : null;
+            const allClicks = raw.clickLog ? mergeEvents(raw.clickLog, clicks) : null;
+            if (accesses) {
+                $('kAccess').textContent = fmt.format(accesses.length);
+                $('kAccessSub').textContent = `incluye repetidos · ${fmt.format(accesses.filter((a) => a.day === today).length)} hoy`;
+            }
+            renderSocial(visits, accesses);
+            renderRepeat(accesses, allClicks);
 
             renderChart(visits, clicks);
             renderRows($('byButton'), countBy(clicks, 'button'), (k) => BUTTON_NAMES[k] || k, false);
@@ -671,6 +812,13 @@
                     if (name === 'visits') { map.provCache.clear(); map.depCache.clear(); }
                     render();
                 },
+                showError
+            );
+          });
+          ['visitLog', 'clickLog'].forEach((name) => {
+            onSnapshot(
+                collection(db, name),
+                (snap) => { raw[name] = snap.docs.map((d) => d.data()); render(); },
                 showError
             );
           });
@@ -1067,17 +1215,26 @@
         // Lista de accesos y clicks del período, cada uno con el hash de su IP.
         // Sale del historial completo (visitLog / clickLog); los registros "1 por IP"
         // se suman solo si no tienen su par en el historial (datos de antes de que existiera).
-        async function loadEvents(logName, unique, from, to) {
-            const snap = await getDocs(query(collection(db, logName), where('day', '>=', from), where('day', '<=', to)));
-            const events = snap.docs.map((d) => ({ ...d.data(), ip: d.data().ipHash }))
+        function mergeEvents(logged, unique) {
+            const events = logged.map((d) => ({ ...d, ip: d.ipHash }))
                 .filter((e) => !isExcludedGeo(e) && !excludedIps.has(e.ip));
-            events.forEach((e) => { e.time = eventTime(e); });
+            const timesByIp = new Map();
+            events.forEach((e) => {
+                e.time = eventTime(e);
+                if (!timesByIp.has(e.ip)) timesByIp.set(e.ip, []);
+                timesByIp.get(e.ip).push(e.time);
+            });
             unique.forEach((u) => {
                 const time = eventTime(u);
-                const logged = events.some((e) => e.ip === u._id && Math.abs(e.time - time) < SAME_EVENT_MS);
-                if (!logged) events.push({ ...u, ip: u._id, time });
+                const isLogged = (timesByIp.get(u._id) || []).some((t) => Math.abs(t - time) < SAME_EVENT_MS);
+                if (!isLogged) events.push({ ...u, ip: u._id, time });
             });
             return events.sort((a, b) => a.time - b.time);
+        }
+
+        async function loadEvents(logName, unique, from, to) {
+            const snap = await getDocs(query(collection(db, logName), where('day', '>=', from), where('day', '<=', to)));
+            return mergeEvents(snap.docs.map((d) => d.data()), unique);
         }
 
         // Asigna a cada acceso los clicks de la misma IP hechos entre ese acceso y el siguiente
