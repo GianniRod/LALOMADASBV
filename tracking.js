@@ -222,10 +222,18 @@ function detectSource() {
   let host = '';
   try { host = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) {}
 
+  // Los utm viajan con el link: si alguien copia el link de la bio o de un anuncio y lo
+  // manda por WhatsApp, llega con utm_source=ig aunque no venga de Instagram. Por eso los
+  // utm solo cuentan si la visita realmente viene de una app de Meta (navegador interno,
+  // referrer o fbclid). utm_source=an (Audience Network) se abre en apps de terceros.
+  const inInstagram = /Instagram/.test(ua) || /instagram\.com$/.test(host);
+  const inFacebook = /FBAN|FBAV|FB_IAB|FBIOS/.test(ua) || /(facebook\.com|fb\.com|fb\.me)$/.test(host);
+  const utmCounts = inInstagram || inFacebook || params.has('fbclid') || utmSource === 'an';
+
   let source = null;
-  if (/^(ig|instagram)/.test(utmSource) || /Instagram/.test(ua) || /instagram\.com$/.test(host)) {
+  if (inInstagram || (utmCounts && /^(ig|instagram)/.test(utmSource))) {
     source = 'instagram';
-  } else if (/^(fb|facebook)/.test(utmSource) || /FBAN|FBAV|FB_IAB|FBIOS/.test(ua) || /(facebook\.com|fb\.com|fb\.me)$/.test(host)) {
+  } else if (inFacebook || (utmCounts && /^(fb|facebook)/.test(utmSource))) {
     source = 'facebook';
   }
 
@@ -237,8 +245,8 @@ function detectSource() {
   // al link de la bio: utm_source=ig cuenta como pauta únicamente si no hay otro utm_medium.
   const utmContent = (params.get('utm_content') || '').toLowerCase();
   const organic = utmMedium === 'social' || /link_in_bio/.test(utmContent);
-  const paid = /paid|cpc|ads?$|pauta/.test(utmMedium)
-    || (!organic && !utmMedium && /^(ig|fb|msg|an)$/.test(utmSource));
+  const paid = utmCounts && (/paid|cpc|ads?$|pauta/.test(utmMedium)
+    || (!organic && !utmMedium && /^(ig|fb|msg|an)$/.test(utmSource)));
   // fbclid solo indica que vino de una app de Meta, sin decir si fue Facebook o Instagram
   if (!source && params.has('fbclid')) source = 'meta';
 
