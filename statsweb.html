@@ -315,7 +315,7 @@
         .login { display: none; min-height: calc(100vh - 180px); align-items: center; justify-content: center; }
         body.locked .login { display: flex; }
         .login .card { width: 100%; max-width: 360px; padding: 28px 24px; }
-        .login h1 { font-size: 1.6rem; margin: 4px 0 20px; }
+        .login-label { display: block; margin-bottom: 18px; }
         .login form { display: flex; flex-direction: column; gap: 14px; }
         .login .field input { padding: 10px 12px; font-size: .95rem; }
         .login .btn { padding: 11px 18px; margin-top: 4px; }
@@ -351,8 +351,7 @@
 
     <div class="login">
         <div class="card">
-            <span class="label">Panel de desarrolladores</span>
-            <h1>La Lomada de Puiggari</h1>
+            <span class="label login-label">Panel de desarrolladores</span>
             <form id="loginForm" novalidate>
                 <label class="field">Usuario<input type="text" id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
                 <label class="field">Contraseña<input type="password" id="loginPass" autocomplete="current-password" required></label>
@@ -366,7 +365,6 @@
         <header>
             <div>
                 <span class="label">Panel de desarrolladores</span>
-                <h1>La Lomada de Puiggari</h1>
             </div>
             <div class="head-right">
                 <div class="session"><span>Usuario: <b id="sessionUser"></b></span><button class="btn-ghost" id="logoutBtn">Cerrar sesión</button></div>
