@@ -321,7 +321,8 @@
         .login .field input { padding: 10px 12px; font-size: .95rem; }
         .login .btn { padding: 11px 18px; margin-top: 4px; }
         .login-msg { font-size: .8rem; color: #8A1C1C; min-height: 1.2em; }
-        .session { display: flex; align-items: center; gap: 10px; font-size: .82rem; color: var(--text-light); }
+        .session { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; font-size: .82rem; color: var(--text-light); }
+        a.btn-ghost { text-decoration: none; display: inline-block; }
         .session b { color: var(--text); font-weight: 500; }
         .head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 
@@ -368,7 +369,10 @@
                 <span class="label">Panel de desarrolladores</span>
             </div>
             <div class="head-right">
-                <div class="session"><span>Usuario: <b id="sessionUser"></b></span><button class="btn-ghost" id="logoutBtn">Cerrar sesión</button></div>
+                <div class="session">
+                    <a class="btn-ghost" href="nueva" target="_blank" rel="noopener" title="Versión de prueba del nuevo diseño. No suma a las estadísticas.">Ver nueva landing ↗</a>
+                    <span>Usuario: <b id="sessionUser"></b></span><button class="btn-ghost" id="logoutBtn">Cerrar sesión</button>
+                </div>
                 <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Conectando…</span></div>
             </div>
         </header>
