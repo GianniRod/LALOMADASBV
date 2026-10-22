@@ -289,6 +289,8 @@
         .ab-tile .meta { font-size: .8rem; color: var(--text-light); }
         .tag.win { color: var(--accent); background: var(--accent-light); }
         .ab-verdict { font-size: .85rem; margin: 14px 0 6px; }
+        .ab-tile .meta b { color: var(--text); font-weight: 600; }
+        .ab-tile .ab-secondary { font-size: .74rem; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
 
         /* ---- Visitantes que volvieron ---- */
         .table-scroll { overflow: auto; max-height: 560px; }
@@ -440,13 +442,13 @@
                 <table class="ip-table">
                     <thead><tr>
                         <th>Origen</th>
-                        <th class="num">Accesos A</th><th class="num">Conversión A</th>
-                        <th class="num">Accesos B</th><th class="num">Conversión B</th>
+                        <th class="num">Visitantes A</th><th class="num">Conversión A</th>
+                        <th class="num">Visitantes B</th><th class="num">Conversión B</th>
                     </tr></thead>
                     <tbody id="abRows"></tbody>
                 </table>
             </div>
-            <p class="section-foot">Conversión = accesos desde los que se tocó un botón de WhatsApp ÷ accesos. Solo cuentan los accesos desde que empezó la prueba; los anteriores no tienen diseño asignado.</p>
+            <p class="section-foot">Conversión por visitante = visitantes que tocaron un botón de WhatsApp ÷ visitantes (cada IP cuenta una vez, aunque entre muchas veces). La conversión por accesos se muestra como dato secundario. Solo cuentan los datos desde que empezó la prueba; los anteriores no tienen diseño asignado.</p>
         </section>
 
         <section class="card export">
@@ -785,16 +787,25 @@
 
         // ---- Prueba A/B ----
         const AB_NAMES = { A: 'A · Landing actual', B: 'B · Landing nueva' };
-        const AB_MIN = 30; // accesos mínimos por diseño antes de sacar conclusiones
+        const AB_MIN = 30; // visitantes mínimos por diseño antes de sacar conclusiones
 
+        // La conversión principal es por visitante (IP): si alguien entra 25 veces cuenta como 1.
+        // La conversión por acceso queda como dato secundario.
         function abStats(accesses, allClicks, v) {
             const list = accesses.filter((a) => a.variant === v);
-            const conv = list.filter((a) => a.clicks && a.clicks.length).length;
+            const visitors = new Set(list.map((a) => a.ip));
+            // Visitantes de este diseño que tocaron WhatsApp (en este diseño)
+            const clickedIps = allClicks
+                ? new Set(allClicks.filter((c) => c.variant === v && visitors.has(c.ip)).map((c) => c.ip))
+                : new Set(list.filter((a) => a.clicks && a.clicks.length).map((a) => a.ip));
+            const accConv = list.filter((a) => a.clicks && a.clicks.length).length;
             return {
-                n: list.length,
-                conv,
-                rate: list.length ? conv / list.length : 0,
-                ips: new Set(list.map((a) => a.ip)).size,
+                n: visitors.size,
+                conv: clickedIps.size,
+                rate: visitors.size ? clickedIps.size / visitors.size : 0,
+                clickedIps,
+                accesses: list.length,
+                accConv,
                 clicks: allClicks ? allClicks.filter((c) => c.variant === v).length : null,
                 first: list.length ? list[0] : null
             };
@@ -823,16 +834,16 @@
                 const x = s[v];
                 return `<div class="ab-tile${v === 'B' ? ' b' : ''}">
                     <div class="name">${AB_NAMES[v]}${winner === v ? '<span class="tag win">Gana</span>' : ''}</div>
-                    <div class="big">${x.n ? pct(x.conv, x.n) : '—'} <span class="meta">conversión</span></div>
-                    <div class="meta">${plural(x.n, 'acceso')} · ${plural(x.ips, 'visitante')}</div>
-                    <div class="meta">${fmt.format(x.conv)} entraron a WhatsApp${x.clicks === null ? '' : ` · ${plural(x.clicks, 'click')} en total`}</div>
+                    <div class="big">${x.n ? pct(x.conv, x.n) : '—'} <span class="meta">conversión por visitante</span></div>
+                    <div class="meta"><b>${plural(x.n, 'visitante')}</b> · <b>${fmt.format(x.conv)}</b> entraron a WhatsApp</div>
+                    <div class="meta ab-secondary">Por accesos: ${x.accesses ? pct(x.accConv, x.accesses) : '—'} (${plural(x.accesses, 'acceso')}${x.clicks === null ? '' : ` · ${plural(x.clicks, 'click')}`})</div>
                 </div>`;
             }).join('');
 
             let verdict = '';
             if (!s.A.n && !s.B.n) verdict = '';
-            else if (!enough) verdict = `Todavía hay pocos datos para comparar: hacen falta al menos ${AB_MIN} accesos en cada diseño.`;
-            else if (!sig) verdict = 'Por ahora la diferencia no es concluyente: puede deberse al azar. Conviene esperar más accesos.';
+            else if (!enough) verdict = `Todavía hay pocos datos para comparar: hacen falta al menos ${AB_MIN} visitantes en cada diseño.`;
+            else if (!sig) verdict = 'Por ahora la diferencia no es concluyente: puede deberse al azar. Conviene esperar más visitantes.';
             else {
                 const lo = winner === 'A' ? s.B : s.A, hi = s[winner];
                 const lift = lo.rate ? ((hi.rate / lo.rate - 1) * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '% más' : 'más';
@@ -840,11 +851,16 @@
             }
             $('abVerdict').textContent = verdict;
 
-            const sources = countBy(accesses.filter((a) => a.variant).map((a) => ({ s: sourceName(a.referrer) })), 's');
+            // Por origen, también por visitante: cada IP cuenta en el origen de su primer acceso en ese diseño
+            const firstSource = { A: new Map(), B: new Map() };
+            accesses.forEach((a) => {
+                if (firstSource[a.variant] && !firstSource[a.variant].has(a.ip)) firstSource[a.variant].set(a.ip, sourceName(a.referrer));
+            });
+            const sources = countBy([...firstSource.A.values(), ...firstSource.B.values()].map((k) => ({ s: k })), 's');
             const cell = (v, k) => {
-                const list = accesses.filter((a) => a.variant === v && sourceName(a.referrer) === k);
-                const conv = list.filter((a) => a.clicks && a.clicks.length).length;
-                return `<td class="num">${fmt.format(list.length)}</td><td class="num">${list.length ? pct(conv, list.length) : '—'}</td>`;
+                const ips = [...firstSource[v]].filter(([, src]) => src === k).map(([ip]) => ip);
+                const conv = ips.filter((ip) => s[v].clickedIps.has(ip)).length;
+                return `<td class="num">${fmt.format(ips.length)}</td><td class="num">${ips.length ? pct(conv, ips.length) : '—'}</td>`;
             };
             $('abRows').innerHTML = sources.length
                 ? sources.map(([k]) => `<tr><td>${escapeHtml(k)}</td>${cell('A', k)}${cell('B', k)}</tr>`).join('')
@@ -1759,10 +1775,11 @@
 
             r = sectionTitle(ws, r + 1, 'Prueba A/B');
             r = writeTable(ws, r,
-                [{ header: 'Diseño' }, { header: 'Accesos', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión', numFmt: '0.0%' }],
+                [{ header: 'Diseño' }, { header: 'Visitantes', numFmt: '#,##0' }, { header: 'Entraron a WhatsApp', numFmt: '#,##0' }, { header: 'Conversión por visitante', numFmt: '0.0%' },
+                    { header: 'Accesos', numFmt: '#,##0' }, { header: 'Conversión por acceso', numFmt: '0.0%' }],
                 ['A', 'B'].map((v) => {
                     const x = abStats(accesses, allClicks, v);
-                    return [AB_NAMES[v], x.n, x.conv, x.n ? x.rate : null];
+                    return [AB_NAMES[v], x.n, x.conv, x.n ? x.rate : null, x.accesses, x.accesses ? x.accConv / x.accesses : null];
                 }));
 
             const notes = [
