@@ -2,11 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Quién puede ver y borrar los datos: usuarios logueados en el panel (/statsweb).
-    // Los usuarios se crean a mano en Firebase Authentication (usuario@mail.com).
+    // Quién puede ver y borrar los datos: solo estos usuarios del panel (/statsweb).
+    // Los usuarios se crean a mano en Firebase Authentication (usuario@mail.com);
+    // para sumar uno nuevo hay que agregarlo también a esta lista.
     // El sitio no lee nada: solo crea visitas y clicks, sin necesidad de login.
     function isAdmin() {
-      return request.auth != null;
+      return request.auth != null
+        && request.auth.token.email in ['gianni@mail.com', 'silvana@mail.com'];
     }
 
     // Ubicación aproximada (opcional): país, provincia, ciudad y coordenadas según la IP
