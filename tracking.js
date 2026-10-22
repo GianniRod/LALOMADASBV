@@ -246,14 +246,27 @@ function detectSource() {
   return host || 'directo';
 }
 
+// Parámetros de campaña tal como llegaron en el link, para ver en el panel por qué
+// un acceso se clasificó como pauta u orgánico
+function linkParams() {
+  let params;
+  try { params = new URLSearchParams(location.search); } catch (e) { return ''; }
+  const parts = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']
+    .filter((k) => params.get(k))
+    .map((k) => k + '=' + params.get(k));
+  if (params.has('fbclid')) parts.push('fbclid');
+  return parts.join('&').slice(0, 200);
+}
+
 const referrer = detectSource().slice(0, 100);
+const utm = linkParams();
 getGeo().then((geo) => {
   record('visits', { referrer, ...geo });
 
   // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
   const session = safeStorage('sessionStorage');
   if (!session || !session.getItem('lalomada_visitlog_ok')) {
-    log('visitLog', { referrer, ...geo }).then((ok) => {
+    log('visitLog', { referrer, ...geo, ...(utm ? { utm } : {}) }).then((ok) => {
       if (ok && session) session.setItem('lalomada_visitlog_ok', '1');
     });
   }

@@ -54,7 +54,8 @@ service cloud.firestore {
 
     match /visitLog/{id} {
       allow read: if isAdmin();
-      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon'])
+      allow create: if request.resource.data.keys().hasOnly(['ipHash', 'ts', 'day', 'referrer', 'country', 'region', 'city', 'lat', 'lon', 'utm'])
+        && (!('utm' in request.resource.data) || (request.resource.data.utm is string && request.resource.data.utm.size() <= 200))
         && request.resource.data.ipHash is string
         && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
         && request.resource.data.ts == request.time
