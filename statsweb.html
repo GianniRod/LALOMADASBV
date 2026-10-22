@@ -37,6 +37,20 @@
 
         .wrap { max-width: 1100px; margin: 0 auto; }
 
+        /* ---- Barra con logos (como el menú del sitio, con logos un poco más grandes) ---- */
+        .brandbar {
+            margin: -32px -16px 28px;
+            background: rgba(255, 255, 255, 0.97);
+            border-bottom: 1px solid rgba(228, 228, 228, 0.70);
+            box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+        }
+        .brandbar-inner {
+            max-width: 1100px; margin: 0 auto; padding: 0 16px;
+            height: 88px; display: flex; align-items: center; gap: 10px;
+        }
+        .brandbar .brand-logo { height: 60px; width: auto; object-fit: contain; }
+        .brandbar .brand-logo-text { height: 33px; width: auto; object-fit: contain; }
+
         header {
             display: flex;
             justify-content: space-between;
@@ -298,7 +312,7 @@
 
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
-        .login { display: none; min-height: calc(100vh - 96px); align-items: center; justify-content: center; }
+        .login { display: none; min-height: calc(100vh - 180px); align-items: center; justify-content: center; }
         body.locked .login { display: flex; }
         .login .card { width: 100%; max-width: 360px; padding: 28px 24px; }
         .login h1 { font-size: 1.6rem; margin: 4px 0 20px; }
@@ -320,11 +334,21 @@
         @media (max-width: 420px) {
             .kpi-value { font-size: 1.8rem; }
             h1 { font-size: 1.6rem; }
+            .brandbar-inner { height: 72px; gap: 8px; }
+            .brandbar .brand-logo { height: 46px; }
+            .brandbar .brand-logo-text { height: 26px; }
         }
     </style>
 </head>
 
 <body class="checking">
+    <nav class="brandbar">
+        <div class="brandbar-inner">
+            <img src="assets/images/logo-sbv.png" alt="Escribanía SBV" class="brand-logo">
+            <img src="assets/images/logo-lalomada.png" alt="La Lomada" class="brand-logo-text">
+        </div>
+    </nav>
+
     <div class="login">
         <div class="card">
             <span class="label">Panel de desarrolladores</span>
@@ -486,9 +510,9 @@
             <div class="table-scroll">
                 <table class="ip-table">
                     <thead><tr>
-                        <th>ID visitante</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                        <th></th><th>ID visitante</th><th>Ciudad</th><th>Provincia</th><th>País</th>
                         <th class="num">Accesos</th><th class="num">Clicks a WhatsApp</th><th>Origen</th>
-                        <th>Primer acceso</th><th>Último acceso</th><th></th>
+                        <th>Primer acceso</th><th>Último acceso</th>
                     </tr></thead>
                     <tbody id="repeatRows"><tr><td colspan="10" class="empty">Cargando…</td></tr></tbody>
                 </table>
@@ -520,10 +544,10 @@
             <div class="table-scroll">
                 <table class="ip-table">
                     <thead><tr>
-                        <th>Fecha y hora</th><th>Medio</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                        <th></th><th>Fecha y hora</th><th>Medio</th><th>Ciudad</th><th>Provincia</th><th>País</th>
                         <th class="num">Visita</th><th>¿Entró a WhatsApp?</th><th>ID visitante</th><th>Parámetros del link</th>
                     </tr></thead>
-                    <tbody id="allRows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
+                    <tbody id="allRows"><tr><td colspan="10" class="empty">Cargando…</td></tr></tbody>
                 </table>
             </div>
             <div class="list-more"><button class="btn-ghost" id="allMore" hidden>Mostrar más</button></div>
@@ -810,22 +834,24 @@
                     const wa = !hasClicks ? '—'
                         : a.clicks.length ? `<span class="wa">Sí · ${eventWhen(a.clicks[0])}${a.clicks.length > 1 ? ` (${a.clicks.length} clicks)` : ''}</span>` : 'No';
                     return `<tr>
+                        ${hideCell(a.ip)}
                         <td>${eventWhen(a)}</td>
                         <td>${escapeHtml(sourceName(a.referrer))}</td>
                         ${locCells(a)}
                         <td class="num">${nth} de ${totals[a.ip]}</td>
                         <td>${wa}</td>
-                        <td class="ip-id">${escapeHtml(shortId(a.ip))}</td>
+                        <td class="ip-id">${escapeHtml(shortId(a.ip))}${ownTag(a.ip)}</td>
                         <td class="ip-id">${escapeHtml(a.utm || '—')}</td>
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="9" class="empty">Sin accesos todavía.</td></tr>';
+                : '<tr><td colspan="10" class="empty">Sin accesos todavía.</td></tr>';
 
             const left = rows.length - shown.length;
             $('allMore').hidden = left <= 0;
             $('allMore').textContent = `Mostrar más (quedan ${fmt.format(left)})`;
         }
 
+        $('allRows').addEventListener('click', onHideClick);
         $('allFilter').addEventListener('change', () => {
             allView.filter = $('allFilter').value;
             allView.limit = ALL_PAGE;
@@ -876,6 +902,15 @@
             } catch (e) { /* sin IP propia: simplemente no se marca */ }
         }
         const ownTag = (ip) => ip === ownIp ? ' <span class="tag">Tu IP actual</span>' : '';
+        const hideCell = (ip) => `<td><button class="btn-ghost btn-sm hide-btn" data-ip="${escapeHtml(ip)}" title="Dejar de contar a este visitante en todo el panel">Ocultar</button></td>`;
+
+        function onHideClick(e) {
+            const btn = e.target.closest('.hide-btn');
+            if (!btn) return false;
+            btn.disabled = true;
+            hideIp(btn.dataset.ip).finally(() => { btn.disabled = false; });
+            return true;
+        }
 
         function renderHidden() {
             if (!raw.hidden || !raw.visits) return;
@@ -942,6 +977,7 @@
                     const sources = [...new Set(list.map((a) => sourceName(a.referrer)))].join(', ');
                     const open = repeatOpen.has(ip);
                     return `<tr class="ip-row${open ? ' open' : ''}" data-ip="${escapeHtml(ip)}" title="Ver cada acceso">
+                        ${hideCell(ip)}
                         <td class="ip-id"><span class="chev">${open ? '▾' : '▸'}</span>${escapeHtml(shortId(ip))}${ownTag(ip)}</td>
                         ${locCells(loc)}
                         <td class="num"><b>${fmt.format(list.length)}</b></td>
@@ -949,15 +985,13 @@
                         <td>${escapeHtml(sources)}</td>
                         <td>${eventWhen(list[0])}</td>
                         <td>${eventWhen(list[list.length - 1])}</td>
-                        <td><button class="btn-ghost btn-sm hide-btn" data-ip="${escapeHtml(ip)}">Ocultar</button></td>
                     </tr>` + (open ? repeatDetail(list, !!allClicks) : '');
                 }).join('')
                 : `<tr><td colspan="10" class="empty">${all ? 'Sin visitantes todavía.' : 'Todavía nadie entró más de una vez.'}</td></tr>`;
         }
 
         $('repeatRows').addEventListener('click', (e) => {
-            const hide = e.target.closest('.hide-btn');
-            if (hide) { hide.disabled = true; hideIp(hide.dataset.ip).finally(() => { hide.disabled = false; }); return; }
+            if (onHideClick(e)) return;
             const row = e.target.closest('.ip-row');
             if (!row || !lastRepeat) return;
             const ip = row.dataset.ip;
