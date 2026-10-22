@@ -113,6 +113,30 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Duración exacta de cada acceso (segundos con la página en pantalla, hasta 30 min).
+    // Un documento por acceso; al actualizarse solo pueden cambiar los segundos (siempre hacia arriba) y la hora.
+    match /sessionDuration/{visitId} {
+      allow read: if isAdmin();
+      allow create: if visitId.matches('^[A-Za-z0-9]{10,40}$')
+        && request.resource.data.keys().hasOnly(['visitId', 'ipHash', 'sec', 'ts', 'day', 'variant'])
+        && request.resource.data.visitId == visitId
+        && request.resource.data.sec is int
+        && request.resource.data.sec >= 0
+        && request.resource.data.sec <= 1800
+        && request.resource.data.ipHash is string
+        && request.resource.data.ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.ts == request.time
+        && request.resource.data.day is string
+        && request.resource.data.day.size() == 10
+        && validVariant(request.resource.data);
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sec', 'ts'])
+        && request.resource.data.sec is int
+        && request.resource.data.sec > resource.data.sec
+        && request.resource.data.sec <= 1800
+        && request.resource.data.ts == request.time;
+      allow delete: if isAdmin();
+    }
+
     // Visitantes ocultados desde el panel (por ejemplo, los dueños del sitio).
     // El ID es el mismo hash de IP; los datos no se borran, solo no se cuentan.
     match /hiddenIps/{ipHash} {

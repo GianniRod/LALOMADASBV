@@ -320,6 +320,33 @@ async function sendTimeMark(sec) {
   }
 }
 
+// Duración exacta: un documento por acceso (sessionDuration/<id del acceso>) con los segundos en
+// pantalla. Se actualiza cada 5 s el primer minuto, cada 15 s hasta los 5 min y cada 30 s después
+// (hasta 30 min), y al instante cuando la página deja de estar en pantalla (cambia de app o va a WhatsApp).
+const DURATION_MAX = 1800;
+const durationStep = (sec) => sec < 60 ? 5 : sec < 300 ? 15 : 30;
+let durationSent = 0;
+let durationChain = Promise.resolve();
+
+function sendDuration(sec) {
+  if (sec <= durationSent) return;
+  durationSent = sec;
+  // En cadena: cada valor se guarda después del anterior (las reglas solo aceptan que aumente)
+  durationChain = durationChain.then(async () => {
+    const visitId = await visitIdPromise;
+    if (!visitId) return;
+    const ipHash = await getIpHash();
+    if (!ipHash) return;
+    try {
+      await setDoc(doc(db, 'sessionDuration', visitId), withVariant({
+        visitId, ipHash, sec, ts: serverTimestamp(), day: today()
+      }));
+    } catch (e) {
+      if (e && e.code !== 'permission-denied') console.warn('[stats]', e);
+    }
+  });
+}
+
 function startTimer() {
   const session = safeStorage('sessionStorage');
   let st = { sec: 0, sent: 0 };
@@ -327,7 +354,7 @@ function startTimer() {
     const saved = JSON.parse((session && session.getItem(TIME_KEY)) || 'null');
     if (saved && typeof saved.sec === 'number' && typeof saved.sent === 'number') st = saved;
   } catch (e) {}
-  if (st.sent >= TIME_MARKS.length) return;
+  if (st.sec >= DURATION_MAX) return;
   const timer = setInterval(() => {
     if (document.visibilityState !== 'visible') return;
     st.sec++;
@@ -335,9 +362,13 @@ function startTimer() {
       sendTimeMark(TIME_MARKS[st.sent]);
       st.sent++;
     }
+    if (st.sec - durationSent >= durationStep(st.sec)) sendDuration(st.sec);
     try { if (session) session.setItem(TIME_KEY, JSON.stringify(st)); } catch (e) {}
-    if (st.sent >= TIME_MARKS.length) clearInterval(timer);
+    if (st.sec >= DURATION_MAX) clearInterval(timer);
   }, 1000);
+  const flush = () => { if (st.sec > 0) sendDuration(Math.min(st.sec, DURATION_MAX)); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', flush);
 }
 
 const referrer = detectSource().slice(0, 100);

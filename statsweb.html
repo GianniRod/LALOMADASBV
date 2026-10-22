@@ -471,7 +471,7 @@
                         <div class="table-scroll">
                             <table class="ip-table">
                                 <thead><tr>
-                                    <th></th><th class="num">Medidos</th><th class="num">Menos de 10 s</th><th class="num">1 min o más</th><th>Tiempo típico</th>
+                                    <th></th><th class="num">Medidos</th><th class="num">Menos de 10 s</th><th class="num">1 min o más</th><th class="num">Promedio</th><th>Tiempo típico</th>
                                 </tr></thead>
                                 <tbody id="timeRows"></tbody>
                             </table>
@@ -479,7 +479,7 @@
                     </div>
                 </div>
             </div>
-            <p class="section-foot">Tiempo por acceso. Se registra en marcas (10 s, 30 s, 1, 2, 5 y 10 min), así no se pierde aunque el celular cierre la página sin avisar. "Tiempo típico" es la mediana: la mitad de los accesos se quedó al menos ese tiempo. Si muchos accesos de la pauta se van en menos de 10 s, son clicks sin interés real.</p>
+            <p class="section-foot">Tiempo por acceso. "Promedio": segundos exactos en pantalla (se actualizan cada pocos segundos y al salir; máximo 30 min). Los rangos se registran en marcas (10 s, 30 s, 1, 2, 5 y 10 min), así no se pierden aunque el celular cierre la página sin avisar. "Tiempo típico" es la mediana: la mitad de los accesos se quedó al menos ese tiempo; a diferencia del promedio, no lo mueve alguien que deja la página abierta mucho rato. Si muchos accesos de la pauta se van en menos de 10 s, son clicks sin interés real.</p>
         </section>
 
         <section class="card export">
@@ -735,8 +735,8 @@
         const state = { visits: null, clicks: null };
         // visitLog / clickLog: historial completo (cada acceso y cada click)
         // hidden: visitantes ocultados desde el panel (Map id → { name, by, ts })
-        // sessionTime: marcas de tiempo en la página de cada acceso (ver tracking.js)
-        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null, hidden: null, sessionTime: null };
+        // sessionTime: marcas de tiempo en la página de cada acceso; sessionDuration: segundos exactos (ver tracking.js)
+        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null, hidden: null, sessionTime: null, sessionDuration: null };
 
         // Datos que no se cuentan: robots que revisan la página desde San José, California (EE. UU.).
         // Se excluyen sus visitas y también los clicks y accesos de esas mismas IPs.
@@ -894,10 +894,12 @@
 
             $('abGrid').innerHTML = ['A', 'B'].map((v) => {
                 const x = s[v];
+                const tv = timeSummary(accesses.filter((a) => a.variant === v));
                 return `<div class="ab-tile${v === 'B' ? ' b' : ''}">
                     <div class="name">${AB_NAMES[v]}${winner === v ? '<span class="tag win">Gana</span>' : ''}</div>
                     <div class="big">${x.n ? pct(x.conv, x.n) : '—'} <span class="meta">conversión por visitante</span></div>
                     <div class="meta"><b>${plural(x.n, 'visitante')}</b> · <b>${fmt.format(x.conv)}</b> entraron a WhatsApp</div>
+                    <div class="meta">Tiempo promedio en la página: <b>${fmtSec(tv.avg)}</b></div>
                     <div class="meta ab-secondary">Por accesos: ${x.accesses ? pct(x.accConv, x.accesses) : '—'} (${plural(x.accesses, 'acceso')}${x.clicks === null ? '' : ` · ${plural(x.clicks, 'click')}`})</div>
                 </div>`;
             }).join('');
@@ -918,19 +920,43 @@
         const TIME_LABELS = { 0: 'Menos de 10 s', 10: '10 a 30 s', 30: '30 s a 1 min', 60: '1 a 2 min', 120: '2 a 5 min', 300: '5 a 10 min', 600: 'Más de 10 min' };
         const timeLabel = (sec) => sec === undefined ? '—' : TIME_LABELS[sec];
 
-        // a.sec = marca más alta alcanzada por el acceso, o undefined si no se midió
+        // a.sec = marca más alta alcanzada por el acceso, o undefined si no se midió.
+        // a.dur = segundos exactos en pantalla (sessionDuration), o undefined si no hay dato.
         function attachTimes(accesses) {
             const best = new Map();
             (raw.sessionTime || []).forEach((t) => {
                 if (!best.has(t.visitId) || t.sec > best.get(t.visitId)) best.set(t.visitId, t.sec);
             });
-            accesses.forEach((a) => { a.sec = a._logId && best.has(a._logId) ? best.get(a._logId) : undefined; });
+            const dur = new Map();
+            let durStart = Infinity; // desde cuándo existe la duración exacta
+            (raw.sessionDuration || []).forEach((d) => {
+                dur.set(d.visitId, d.sec);
+                if (d.ts) durStart = Math.min(durStart, d.ts.toMillis() - d.sec * 1000);
+            });
+            accesses.forEach((a) => {
+                a.sec = a._logId && best.has(a._logId) ? best.get(a._logId) : undefined;
+                const d = a._logId ? dur.get(a._logId) : undefined;
+                if (d !== undefined) a.dur = Math.max(d, a.sec || 0);
+                // Se fue antes de la primera actualización (5 s): vale la marca alcanzada
+                else if (a.sec !== undefined && a.time >= durStart - 60000) a.dur = a.sec;
+                else a.dur = undefined;
+            });
+        }
+
+        // Segundos → "47 s" o "83 s (1 min 23 s)"
+        function fmtSec(s) {
+            if (s === undefined || s === null || isNaN(s)) return '—';
+            const r = Math.round(s);
+            return r < 60 ? `${r} s` : `${fmt.format(r)} s (${Math.floor(r / 60)} min ${r % 60} s)`;
         }
 
         function timeSummary(list) {
             const secs = list.filter((a) => a.sec !== undefined).map((a) => a.sec).sort((x, y) => x - y);
             const n = secs.length;
+            const durs = list.filter((a) => a.dur !== undefined).map((a) => a.dur);
             return {
+                avg: durs.length ? durs.reduce((x, y) => x + y, 0) / durs.length : undefined,
+                nAvg: durs.length,
                 n,
                 short: secs.filter((s) => s < 10).length,
                 long: secs.filter((s) => s >= 60).length,
@@ -957,8 +983,10 @@
             $('timeEmpty').hidden = !!t.n;
             $('timeBody').hidden = !t.n;
             if (!t.n) return;
+            const abAvg = ['A', 'B'].map((v) => [v, timeSummary(accesses.filter((a) => a.variant === v))]).filter(([, g]) => g.nAvg);
             $('timeKpis').innerHTML = [
-                ['Accesos medidos', fmt.format(t.n), 'con la página en pantalla'],
+                ['Tiempo promedio', fmtSec(t.avg).replace(/ \(.*/, ''),
+                    abAvg.length ? abAvg.map(([v, g]) => `${v}: ${fmtSec(g.avg).replace(/ \(.*/, '')}`).join(' · ') : `${plural(t.n, 'acceso')} medido${t.n === 1 ? '' : 's'}`],
                 ['Se fueron en menos de 10 s', pct(t.short, t.n), `${plural(t.short, 'acceso')}`],
                 ['Se quedaron 1 min o más', pct(t.long, t.n), `${plural(t.long, 'acceso')}`],
                 ['Tiempo típico', timeLabel(t.median), 'la mitad se quedó al menos esto']
@@ -978,6 +1006,7 @@
                     <td class="num">${fmt.format(g.n)}</td>
                     <td class="num">${pct(g.short, g.n)}</td>
                     <td class="num">${pct(g.long, g.n)}</td>
+                    <td class="num"><b>${fmtSec(g.avg)}</b></td>
                     <td>${timeLabel(g.median)}</td>
                 </tr>`).join('');
         }
@@ -1381,6 +1410,11 @@
               (snap) => { raw.sessionTime = snap.docs.map((d) => d.data()); render(); },
               // Sin las reglas publicadas el panel funciona igual, sin datos de tiempo
               (err) => { console.warn('[sessionTime]', err); raw.sessionTime = []; render(); }
+          );
+          onSnapshot(
+              collection(db, 'sessionDuration'),
+              (snap) => { raw.sessionDuration = snap.docs.map((d) => d.data()); render(); },
+              (err) => { console.warn('[sessionDuration]', err); raw.sessionDuration = []; render(); }
           );
           loadOwnIp();
         }
@@ -1931,8 +1965,9 @@
 
             // Tiempo en la página (solo accesos medidos)
             const tAll = timeSummary(accesses);
-            const timeCols = [{ header: '' }, { header: 'Accesos medidos', ...NUM }, { header: 'Menos de 10 s', ...PCT }, { header: '1 min o más', ...PCT }, { header: 'Tiempo típico', align: 'left' }];
-            const timeRow = (k, g) => [k, g.n, rate(g.short, g.n), rate(g.long, g.n), timeLabel(g.median)];
+            const timeCols = [{ header: '' }, { header: 'Accesos medidos', ...NUM }, { header: 'Menos de 10 s', ...PCT }, { header: '1 min o más', ...PCT },
+                { header: 'Promedio (segundos)', numFmt: '0' }, { header: 'Tiempo típico', align: 'left' }];
+            const timeRow = (k, g) => [k, g.n, rate(g.short, g.n), rate(g.long, g.n), g.avg === undefined ? null : Math.round(g.avg), timeLabel(g.median)];
             if (tAll.n) {
                 r = sectionTitle(ws, r + 1, 'Tiempo en la página');
                 r = writeTable(ws, r, [{ header: 'Cuánto se quedan' }, { header: 'Accesos', ...NUM }, { header: '% de los medidos', ...PCT }],
@@ -2137,13 +2172,14 @@
                 { header: 'Hora de entrada a WhatsApp', ...DT, width: 26 },
                 { header: 'Visita', width: 10 },
                 { header: 'Tiempo en la página', width: 19, align: 'left' },
+                { header: 'Segundos en pantalla', numFmt: '0', width: 20 },
                 { header: 'ID visitante', width: 14 },
                 { header: 'Parámetros del link', width: 44, align: 'left' }
             ], events.map(({ e, kind }) => {
                 if (kind === 'click') {
                     // El click no guarda ubicación: se toma la del acceso al que pertenece
                     const a = e.access || {};
-                    return [when(e), 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, '', '', shortId(e.ip), ''];
+                    return [when(e), 'Click a WhatsApp', buttonName(e.button), e.variant || '—', provinceName(a), a.city || '—', '—', null, '', '', null, shortId(e.ip), ''];
                 }
                 const first = e.clicks[0];
                 const entered = first ? 'Sí' + (e.clicks.length > 1 ? ` (${e.clicks.length} clicks)` : '') : 'No';
@@ -2152,6 +2188,7 @@
                     first ? when(first) : null,
                     `${nth.get(e)} de ${seen[e.ip]}`,
                     timeLabel(e.sec),
+                    e.dur === undefined ? null : e.dur,
                     shortId(e.ip),
                     e.utm || ''
                 ];
@@ -2257,7 +2294,7 @@
         // Borra los registros "1 por IP" (visits, clicks), el historial (visitLog, clickLog) y las marcas
         // de tiempo (sessionTime) cuya hora cae en el período. Al borrar el registro de una IP, si vuelve
         // a entrar se registra de nuevo.
-        const DELETE_COLLECTIONS = ['visits', 'clicks', 'visitLog', 'clickLog', 'sessionTime'];
+        const DELETE_COLLECTIONS = ['visits', 'clicks', 'visitLog', 'clickLog', 'sessionTime', 'sessionDuration'];
         const BATCH_SIZE = 400; // Firestore admite hasta 500 operaciones por lote
         let deleting = false;
 
@@ -2294,8 +2331,8 @@
             try {
                 const snaps = await Promise.all(DELETE_COLLECTIONS.map((name) =>
                     getDocs(query(collection(db, name), where('ts', '>=', from), where('ts', '<=', to)))));
-                const [nVisits, nClicks, nAccess, nClickLog, nTime] = snaps.map((s) => s.size);
-                const total = nVisits + nClicks + nAccess + nClickLog + nTime;
+                const [nVisits, nClicks, nAccess, nClickLog, nTime, nDur] = snaps.map((s) => s.size);
+                const total = nVisits + nClicks + nAccess + nClickLog + nTime + nDur;
                 const period = `${dateTimeFmt.format(from)} a ${dateTimeFmt.format(to)}`;
                 if (!total) { deleteMsg(`No hay datos entre ${period}.`); return; }
 
@@ -2305,7 +2342,8 @@
                     `· ${nClicks} click(s) único(s) a WhatsApp\n` +
                     `· ${nAccess} acceso(s) del historial\n` +
                     `· ${nClickLog} click(s) del historial\n` +
-                    `· ${nTime} marca(s) de tiempo en la página\n\n` +
+                    `· ${nTime} marca(s) de tiempo en la página\n` +
+                    `· ${nDur} duración(es) de acceso\n\n` +
                     'Esas IPs se vuelven a registrar si entran de nuevo. No se puede deshacer. ¿Continuar?');
                 if (!ok) { deleteMsg('Cancelado.'); return; }
 
