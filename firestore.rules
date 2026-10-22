@@ -84,6 +84,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Visitantes ocultados desde el panel (por ejemplo, los dueños del sitio).
+    // El ID es el mismo hash de IP; los datos no se borran, solo no se cuentan.
+    match /hiddenIps/{ipHash} {
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin()
+        && ipHash.matches('^[a-f0-9]{64}$')
+        && request.resource.data.keys().hasOnly(['ts', 'by', 'name'])
+        && request.resource.data.ts == request.time
+        && request.resource.data.by is string
+        && request.resource.data.by.size() <= 100
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 60;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -290,6 +290,11 @@
             max-width: 100%;
         }
         .list-more { text-align: center; margin-top: 12px; }
+        .btn-sm { font-size: .75rem; padding: 3px 10px; }
+        .btn-sm:disabled { opacity: .5; cursor: default; }
+        .hidden-box { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
+        .hidden-box h2 { margin-bottom: 2px; }
+        .hidden-box .section-foot { margin: 0 0 10px; }
 
         /* ---- Inicio de sesión ---- */
         body.locked .wrap, body.checking .wrap, body.checking .login { display: none; }
@@ -468,18 +473,38 @@
 
         <section class="card repeat">
             <div class="section-head">
-                <h2>Visitantes que volvieron</h2>
+                <h2 id="repeatTitle">Visitantes que volvieron</h2>
                 <p id="repeatSub">IPs con más de 1 acceso a la web</p>
+            </div>
+            <div class="list-tools">
+                <div class="seg" role="radiogroup" aria-label="Qué visitantes mostrar">
+                    <label><input type="radio" name="repeatMode" value="repeat" checked>Más de 1 acceso</label>
+                    <label><input type="radio" name="repeatMode" value="all">Todos los visitantes</label>
+                </div>
+                <button class="btn-ghost" id="hideMine" hidden>Ocultar mi IP actual</button>
             </div>
             <div class="table-scroll">
                 <table class="ip-table">
                     <thead><tr>
                         <th>ID visitante</th><th>Ciudad</th><th>Provincia</th><th>País</th>
                         <th class="num">Accesos</th><th class="num">Clicks a WhatsApp</th><th>Origen</th>
-                        <th>Primer acceso</th><th>Último acceso</th>
+                        <th>Primer acceso</th><th>Último acceso</th><th></th>
                     </tr></thead>
-                    <tbody id="repeatRows"><tr><td colspan="9" class="empty">Cargando…</td></tr></tbody>
+                    <tbody id="repeatRows"><tr><td colspan="10" class="empty">Cargando…</td></tr></tbody>
                 </table>
+            </div>
+            <div class="hidden-box" id="hiddenBox" hidden>
+                <h2 id="hiddenTitle">Visitantes ocultos</h2>
+                <p class="section-foot">No se cuentan en ninguna parte del panel (indicadores, gráfico, mapa, listas) ni en el Excel. Los datos no se borran: con "Mostrar de nuevo" vuelven a contarse.</p>
+                <div class="table-scroll">
+                    <table class="ip-table">
+                        <thead><tr>
+                            <th>ID visitante</th><th>Nombre</th><th>Ciudad</th><th>Provincia</th><th>País</th>
+                            <th class="num">Accesos</th><th></th>
+                        </tr></thead>
+                        <tbody id="hiddenRows"></tbody>
+                    </table>
+                </div>
             </div>
             <p class="section-foot">Tocá un visitante para ver cada acceso con su hora, el medio por el que llegó y si entró a WhatsApp. El ID es un código anónimo derivado de la IP (la IP no se guarda); es el mismo que figura en la columna "ID visitante" del Excel. Ubicación aproximada según la IP.</p>
         </section>
@@ -530,7 +555,8 @@
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
         import {
-            getFirestore, collection, query, orderBy, onSnapshot, getDocs, where, writeBatch
+            getFirestore, collection, query, orderBy, onSnapshot, getDocs, where, writeBatch,
+            doc, setDoc, deleteDoc, serverTimestamp
         } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
         import {
             getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
@@ -611,16 +637,19 @@
 
         const state = { visits: null, clicks: null };
         // visitLog / clickLog: historial completo (cada acceso y cada click)
-        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null };
+        // hidden: visitantes ocultados desde el panel (Map id → { name, by, ts })
+        const raw = { visits: null, clicks: null, visitLog: null, clickLog: null, hidden: null };
 
         // Datos que no se cuentan: robots que revisan la página desde San José, California (EE. UU.).
         // Se excluyen sus visitas y también los clicks y accesos de esas mismas IPs.
+        // Lo mismo con los visitantes ocultados a mano desde el panel.
         const isExcludedGeo = (d) => d.country === 'US' && /^san jose$/i.test(d.city || '');
         let excludedIps = new Set();
 
         function applyExclusions() {
-            if (!raw.visits || !raw.clicks) return;
+            if (!raw.visits || !raw.clicks || !raw.hidden) return;
             excludedIps = new Set(raw.visits.filter(isExcludedGeo).map((v) => v._id));
+            raw.hidden.forEach((_, id) => excludedIps.add(id));
             state.visits = raw.visits.filter((v) => !excludedIps.has(v._id));
             state.clicks = raw.clicks.filter((c) => !excludedIps.has(c._id));
         }
@@ -717,7 +746,7 @@
 
         // Detalle de cada acceso de una IP: hora, medio, ubicación y si entró a WhatsApp
         function repeatDetail(list, hasClicks) {
-            return `<tr class="ip-detail"><td colspan="9">
+            return `<tr class="ip-detail"><td colspan="10">
                 <table>
                     <thead><tr><th>#</th><th>Fecha y hora</th><th>Medio</th><th>Ubicación</th><th>Parámetros del link</th><th>¿Entró a WhatsApp?</th></tr></thead>
                     <tbody>${list.map((a, i) => {
@@ -807,10 +836,87 @@
             renderAllAccesses();
         });
 
-        // IPs con más de un acceso: cuántas veces entraron, desde dónde y cuándo
+        // ---- Ocultar visitantes ----
+        // Los IDs ocultos se guardan en Firestore (hiddenIps) para que valgan en todos los
+        // dispositivos y para los dos usuarios del panel. Se excluyen de todo, como los robots.
+        // Ojo: si la IP cambia (otra red, datos móviles) el ID es otro y hay que ocultarlo también.
+        async function hideIp(ip) {
+            const name = prompt(`Ocultar al visitante ${shortId(ip)} de todo el panel y del Excel.\n\nNombre para reconocerlo (opcional, por ej. "Yo - casa"):`, ip === ownIp ? 'Yo' : '');
+            if (name === null) return;
+            try {
+                await setDoc(doc(db, 'hiddenIps', ip), {
+                    ts: serverTimestamp(),
+                    by: (auth.currentUser && auth.currentUser.email) || '',
+                    name: name.trim().slice(0, 60)
+                });
+            } catch (err) {
+                console.error(err);
+                alert('No se pudo ocultar: ' + (err && err.message ? err.message : err));
+            }
+        }
+
+        async function unhideIp(ip) {
+            try { await deleteDoc(doc(db, 'hiddenIps', ip)); } catch (err) {
+                console.error(err);
+                alert('No se pudo volver a mostrar: ' + (err && err.message ? err.message : err));
+            }
+        }
+
+        // ID de la IP de quien mira el panel, para reconocerse en la lista.
+        // Debe calcularse igual que en tracking.js (misma sal y SHA-256).
+        let ownIp = null;
+        async function loadOwnIp() {
+            try {
+                // api.ipify.org (IPv4), el primer servicio de tracking.js: api64 podría dar la IPv6 y otro ID
+                const res = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
+                const ip = (await res.json()).ip.trim();
+                const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('lalomada-puiggari:' + ip));
+                ownIp = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+                render();
+            } catch (e) { /* sin IP propia: simplemente no se marca */ }
+        }
+        const ownTag = (ip) => ip === ownIp ? ' <span class="tag">Tu IP actual</span>' : '';
+
+        function renderHidden() {
+            if (!raw.hidden || !raw.visits) return;
+            $('hideMine').hidden = !ownIp || raw.hidden.has(ownIp);
+            $('hiddenBox').hidden = !raw.hidden.size;
+            if (!raw.hidden.size) return;
+            const log = raw.visitLog || [];
+            const counts = {}, lastLoc = {};
+            log.forEach((d) => {
+                counts[d.ipHash] = (counts[d.ipHash] || 0) + 1;
+                if ((d.country || d.region) && (!lastLoc[d.ipHash] || eventTime(d) > eventTime(lastLoc[d.ipHash]))) lastLoc[d.ipHash] = d;
+            });
+            const visitById = new Map(raw.visits.map((v) => [v._id, v]));
+            const rows = [...raw.hidden].sort((a, b) => (b[1].ts ? b[1].ts.toMillis() : Infinity) - (a[1].ts ? a[1].ts.toMillis() : Infinity));
+            $('hiddenTitle').textContent = `Visitantes ocultos (${fmt.format(rows.length)})`;
+            $('hiddenRows').innerHTML = rows.map(([ip, h]) => `<tr>
+                    <td class="ip-id">${escapeHtml(shortId(ip))}${ownTag(ip)}</td>
+                    <td>${escapeHtml(h.name || '—')}</td>
+                    ${locCells(lastLoc[ip] || visitById.get(ip) || {})}
+                    <td class="num">${fmt.format(counts[ip] || (visitById.has(ip) ? 1 : 0))}</td>
+                    <td><button class="btn-ghost btn-sm unhide-btn" data-ip="${escapeHtml(ip)}">Mostrar de nuevo</button></td>
+                </tr>`).join('');
+        }
+
+        $('hiddenRows').addEventListener('click', (e) => {
+            const btn = e.target.closest('.unhide-btn');
+            if (btn) { btn.disabled = true; unhideIp(btn.dataset.ip); }
+        });
+        $('hideMine').addEventListener('click', () => { if (ownIp) hideIp(ownIp); });
+
+        const repeatMode = () => document.querySelector('input[name="repeatMode"]:checked').value;
+        document.querySelectorAll('input[name="repeatMode"]').forEach((input) => {
+            input.addEventListener('change', () => { if (lastRepeat) renderRepeat(...lastRepeat); });
+        });
+
+        // Visitantes por IP: cuántas veces entraron, desde dónde y cuándo.
+        // Por defecto solo los que entraron más de una vez; con "Todos", también los de 1 acceso.
         function renderRepeat(accesses, allClicks) {
             if (!accesses) return;
             lastRepeat = [accesses, allClicks];
+            const all = repeatMode() === 'all';
             const byIp = new Map();
             accesses.forEach((a) => {
                 if (!byIp.has(a.ip)) byIp.set(a.ip, []);
@@ -820,34 +926,38 @@
             (allClicks || []).forEach((c) => { clicksByIp[c.ip] = (clicksByIp[c.ip] || 0) + 1; });
             const visitById = new Map(state.visits.map((v) => [v._id, v]));
 
-            const rows = [...byIp].filter(([, list]) => list.length > 1).map(([ip, list]) => ({
+            const rows = [...byIp].filter(([, list]) => all || list.length > 1).map(([ip, list]) => ({
                 ip, list,
                 // ubicación del acceso más reciente que la tenga
                 loc: [...list].reverse().find((a) => a.country || a.region) || visitById.get(ip) || {}
             })).sort((a, b) => b.list.length - a.list.length || b.list[b.list.length - 1].time - a.list[a.list.length - 1].time);
 
             const repeatAccesses = rows.reduce((s, r) => s + r.list.length, 0);
+            $('repeatTitle').textContent = all ? 'Todos los visitantes' : 'Visitantes que volvieron';
             $('repeatSub').textContent = rows.length
-                ? `${plural(rows.length, 'visitante')} con más de 1 acceso · ${plural(repeatAccesses, 'acceso')} en total`
-                : 'IPs con más de 1 acceso a la web';
+                ? `${plural(rows.length, 'visitante')}${all ? '' : ' con más de 1 acceso'} · ${plural(repeatAccesses, 'acceso')} en total`
+                : (all ? 'Cada visitante (IP) con sus accesos' : 'IPs con más de 1 acceso a la web');
             $('repeatRows').innerHTML = rows.length
                 ? rows.map(({ ip, list, loc }) => {
                     const sources = [...new Set(list.map((a) => sourceName(a.referrer)))].join(', ');
                     const open = repeatOpen.has(ip);
                     return `<tr class="ip-row${open ? ' open' : ''}" data-ip="${escapeHtml(ip)}" title="Ver cada acceso">
-                        <td class="ip-id"><span class="chev">${open ? '▾' : '▸'}</span>${escapeHtml(shortId(ip))}</td>
+                        <td class="ip-id"><span class="chev">${open ? '▾' : '▸'}</span>${escapeHtml(shortId(ip))}${ownTag(ip)}</td>
                         ${locCells(loc)}
                         <td class="num"><b>${fmt.format(list.length)}</b></td>
                         <td class="num">${allClicks ? fmt.format(clicksByIp[ip] || 0) : '—'}</td>
                         <td>${escapeHtml(sources)}</td>
                         <td>${eventWhen(list[0])}</td>
                         <td>${eventWhen(list[list.length - 1])}</td>
+                        <td><button class="btn-ghost btn-sm hide-btn" data-ip="${escapeHtml(ip)}">Ocultar</button></td>
                     </tr>` + (open ? repeatDetail(list, !!allClicks) : '');
                 }).join('')
-                : '<tr><td colspan="9" class="empty">Todavía nadie entró más de una vez.</td></tr>';
+                : `<tr><td colspan="10" class="empty">${all ? 'Sin visitantes todavía.' : 'Todavía nadie entró más de una vez.'}</td></tr>`;
         }
 
         $('repeatRows').addEventListener('click', (e) => {
+            const hide = e.target.closest('.hide-btn');
+            if (hide) { hide.disabled = true; hideIp(hide.dataset.ip).finally(() => { hide.disabled = false; }); return; }
             const row = e.target.closest('.ip-row');
             if (!row || !lastRepeat) return;
             const ip = row.dataset.ip;
@@ -906,6 +1016,7 @@
             if (accesses && allClicks) matchClicks(accesses, allClicks);
             renderSocial(visits, accesses);
             renderRepeat(accesses, allClicks);
+            renderHidden();
             if (accesses) {
                 allView.accesses = accesses;
                 allView.hasClicks = !!allClicks;
@@ -965,6 +1076,22 @@
                 showError
             );
           });
+          onSnapshot(
+              collection(db, 'hiddenIps'),
+              (snap) => {
+                  raw.hidden = new Map(snap.docs.map((d) => [d.id, d.data()]));
+                  applyExclusions();
+                  render();
+              },
+              (err) => {
+                  // Sin la lista (p. ej. reglas sin publicar) el panel funciona igual, sin ocultar a nadie
+                  console.warn('[hiddenIps]', err);
+                  raw.hidden = new Map();
+                  applyExclusions();
+                  render();
+              }
+          );
+          loadOwnIp();
         }
 
         // Tooltip del gráfico
