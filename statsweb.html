@@ -542,7 +542,7 @@
         const auth = getAuth(app);
 
         // ---- Inicio de sesión ----
-        // Firebase pide email: el usuario "gianni" es la cuenta gianni@mail.com.
+        // Firebase pide email: el usuario "nombre" es la cuenta nombre@mail.com.
         // El dominio nunca se muestra; solo se escribe y se ve el nombre de usuario.
         const LOGIN_DOMAIN = '@mail.com';
         const toEmail = (user) => user.trim().toLowerCase().replace(/@.*$/, '') + LOGIN_DOMAIN;
