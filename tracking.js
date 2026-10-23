@@ -141,7 +141,7 @@ function getGeo() {
 
 // Visitas que no se registran: robots que revisan la página (Vercel, buscadores),
 // que entran desde San José, California, o se identifican como bots en el user agent
-const BOT_UA = /bot|crawler|spider|headless|lighthouse|vercel|facebookexternalhit/i;
+const BOT_UA = /bot|crawler|spider|headless|lighthouse|vercel|facebookexternalhit|facebot/i;
 let excludedPromise = null;
 function isExcludedVisitor() {
   if (!excludedPromise) {
@@ -150,6 +150,17 @@ function isExcludedVisitor() {
       : getGeo().then((geo) => geo.country === 'US' && /^san jose$/i.test(geo.city || ''));
   }
   return excludedPromise;
+}
+
+// En el click no hay tiempo de esperar la ubicación (la persona se va a WhatsApp):
+// si todavía no llegó, solo se mira el user agent
+const CLICK_GEO_WAIT_MS = 300;
+function isExcludedClick() {
+  if (BOT_UA.test(navigator.userAgent || '')) return Promise.resolve(true);
+  return Promise.race([
+    isExcludedVisitor(),
+    new Promise((resolve) => setTimeout(() => resolve(false), CLICK_GEO_WAIT_MS))
+  ]);
 }
 
 // Si las reglas publicadas todavía no aceptan el campo "variant", Firestore rechaza
@@ -163,9 +174,9 @@ async function writeWithFallback(write, data) {
   }
 }
 
-async function record(collection, extra) {
+async function record(collection, extra, excluded = isExcludedVisitor) {
   if (SKIP) return;
-  if (await isExcludedVisitor()) return;
+  if (await excluded()) return;
   // sessionStorage (no localStorage): si se borran los datos desde el panel,
   // en la próxima sesión la IP se vuelve a registrar
   const local = safeStorage('sessionStorage');
@@ -194,9 +205,9 @@ async function record(collection, extra) {
 // Historial completo: guarda cada acceso/click (no solo el primero por IP),
 // con el hash de la IP para poder cruzar accesos con clicks.
 // Devuelve el ID del documento creado (o true si no había que registrar nada, false si falló).
-async function log(name, extra) {
+async function log(name, extra, excluded = isExcludedVisitor) {
   if (SKIP) return true;
-  if (await isExcludedVisitor()) return true; // "ok": no hay nada que reintentar
+  if (await excluded()) return true; // "ok": no hay nada que reintentar
   const ipHash = await getIpHash();
   if (!ipHash) return false;
   try {
@@ -214,7 +225,9 @@ async function log(name, extra) {
 }
 
 // ---- API PÚBLICA ----
-// Click en cualquier botón que lleva a WhatsApp
+// Click en cualquier botón que lleva a WhatsApp.
+// Devuelve una promesa que termina cuando el click quedó guardado: en el celular el botón
+// la espera (con un límite) antes de ir a WhatsApp, porque al salir de la página se pierde.
 window.lalomadaTrackClick = function (buttonId) {
   if (analytics) {
     try {
@@ -226,8 +239,10 @@ window.lalomadaTrackClick = function (buttonId) {
   if (!SKIP && typeof window.fbq === 'function') {
     try { window.fbq('track', 'Contact', { content_name: button, variant: VARIANT || 'sin_prueba' }); } catch (e) {}
   }
-  record('clicks', { button });
-  log('clickLog', { button });
+  return Promise.all([
+    record('clicks', { button }, isExcludedClick),
+    log('clickLog', { button }, isExcludedClick)
+  ]).catch(() => {});
 };
 
 // Visita al sitio

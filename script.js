@@ -16,11 +16,23 @@
   };
 
   // ---- WHATSAPP REDIRECT ----
-  function openWhatsApp(messageKey) {
+  // En el celular (y en el navegador de Instagram/Facebook) WhatsApp se abre en la misma
+  // pestaña después de guardar el click: si se abre antes, el celular pasa a la app y el
+  // click se pierde, y esos navegadores manejan mal las pestañas nuevas.
+  // En la computadora se abre en otra pestaña al instante (esta sigue abierta y el click se guarda igual).
+  const CLICK_WAIT_MS = 800;
+  const ua = navigator.userAgent || '';
+  const SAME_TAB = /Instagram|FBAN|FBAV|FB_IAB|FBIOS|Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPad con modo escritorio
+  let leaving = false;
+
+  function whatsAppUrl(messageKey) {
     const message = WHATSAPP_MESSAGES[messageKey] || WHATSAPP_MESSAGES.general;
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank', 'noopener');
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
   }
+
+  // Al volver con "atrás" la página puede restaurarse tal como quedó: se reactivan los botones
+  window.addEventListener('pageshow', function () { leaving = false; });
 
   // Bind CTA buttons
   function bindCTAs() {
@@ -34,13 +46,29 @@
     Object.entries(bindings).forEach(([id, messageKey]) => {
       const el = document.getElementById(id);
       if (el) {
+        const url = whatsAppUrl(messageKey);
+        el.href = url;
         el.addEventListener('click', function (e) {
           e.preventDefault();
+          if (leaving) return; // doble toque mientras se guarda el click
           // Registrar el click en las estadísticas (1 por IP)
+          let saved = null;
           if (typeof window.lalomadaTrackClick === 'function') {
-            window.lalomadaTrackClick(id);
+            try { saved = window.lalomadaTrackClick(id); } catch (err) {}
           }
-          openWhatsApp(messageKey);
+          if (!SAME_TAB) {
+            window.open(url, '_blank', 'noopener');
+            return;
+          }
+          leaving = true;
+          let done = false;
+          const go = function () {
+            if (done) return;
+            done = true;
+            window.location.href = url;
+          };
+          Promise.resolve(saved).then(go, go);
+          setTimeout(go, CLICK_WAIT_MS);
         });
       }
     });

@@ -12,22 +12,45 @@
   const WHATSAPP_NUMBER = '5493435046423';
   const WHATSAPP_MESSAGE = 'Hola, quisiera solicitar asesoramiento sobre el Barrio Privado La Lomada de Puiggari.';
 
-  function openWhatsApp() {
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
-    window.open(url, '_blank', 'noopener');
-  }
+  const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
+
+  // Igual que la A (script.js): en el celular y en Instagram/Facebook se espera a que el click
+  // quede guardado (hasta 800 ms) y WhatsApp se abre en la misma pestaña; en la computadora, en otra.
+  const CLICK_WAIT_MS = 800;
+  const ua = navigator.userAgent || '';
+  const SAME_TAB = /Instagram|FBAN|FBAV|FB_IAB|FBIOS|Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+    || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPad con modo escritorio
+  let leaving = false;
+
+  // Al volver con "atrás" la página puede restaurarse tal como quedó: se reactivan los botones
+  window.addEventListener('pageshow', function () { leaving = false; });
 
   function bindCTAs() {
     ['ctaNavbar', 'ctaHero', 'ctaFooter', 'ctaWhatsappFloat'].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
+      el.href = WHATSAPP_URL;
       el.addEventListener('click', function (e) {
         e.preventDefault();
+        if (leaving) return; // doble toque mientras se guarda el click
         // Mismos IDs de botón que la A, así se comparan en el panel
+        let saved = null;
         if (typeof window.lalomadaTrackClick === 'function') {
-          window.lalomadaTrackClick(id);
+          try { saved = window.lalomadaTrackClick(id); } catch (err) {}
         }
-        openWhatsApp();
+        if (!SAME_TAB) {
+          window.open(WHATSAPP_URL, '_blank', 'noopener');
+          return;
+        }
+        leaving = true;
+        let done = false;
+        const go = function () {
+          if (done) return;
+          done = true;
+          window.location.href = WHATSAPP_URL;
+        };
+        Promise.resolve(saved).then(go, go);
+        setTimeout(go, CLICK_WAIT_MS);
       });
     });
   }
