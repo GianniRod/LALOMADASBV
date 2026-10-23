@@ -216,7 +216,7 @@ h3 { font-size: 1.55rem; }
 .pillars { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line-light); }
 .pillar { padding: 44px 36px 8px 0; position: relative; }
 .pillar + .pillar { padding-left: 36px; border-left: 1px solid var(--line-light); }
-.pillar-n { display: block; font-family: var(--serif); font-style: italic; font-size: 1.1rem; color: var(--sand); margin-bottom: 30px; }
+.pillar-n { display: block; width: 32px; height: 1px; background: var(--sand); margin-bottom: 30px; }
 .pillar svg { width: 34px; height: 34px; fill: none; stroke: var(--sand); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 22px; }
 .pillar h3 { margin-bottom: 10px; }
 .pillar p { color: rgba(245, 242, 234, .7); font-size: .96rem; }
