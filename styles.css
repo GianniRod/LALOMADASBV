@@ -372,6 +372,16 @@ p {
   transform: scale(1.02);
 }
 
+/* El video aparece con un fundido cuando tiene el primer cuadro listo */
+.hero-bg video {
+  opacity: 0;
+  transition: opacity .6s ease;
+}
+
+.hero-bg video.is-ready {
+  opacity: 1;
+}
+
 .hero-overlay {
   position: absolute;
   inset: 0;

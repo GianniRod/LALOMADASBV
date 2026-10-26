@@ -149,7 +149,8 @@ h3 { font-size: 1.55rem; }
 }
 .hero-arch { height: 100%; }
 /* Un leve desenfoque disimula la resolución del video en pantallas grandes */
-.hero-arch video { width: 100%; height: 100%; object-fit: cover; filter: blur(1.5px); transform: scale(1.05); transform-origin: center 70%; }
+.hero-arch video { width: 100%; height: 100%; object-fit: cover; filter: blur(1.5px); transform: scale(1.05); transform-origin: center 70%; opacity: 0; transition: opacity .6s ease; }
+.hero-arch video.is-ready { opacity: 1; }
 
 /* ---------- Datos clave ---------- */
 .facts { background: var(--forest); color: var(--ivory); }
