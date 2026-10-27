@@ -410,7 +410,8 @@ h3 { font-size: 1.55rem; }
 
 /* ---------- Portada en celular: video a pantalla completa con el texto encima ---------- */
 @media (max-width: 760px) {
-    .hero { min-height: 88vh; min-height: 88svh; padding: calc(var(--hdr-h) + 24px) 20px 36px; }
+    /* Ocupa toda la pantalla y el botón queda a la altura del WhatsApp flotante (centro a 54px del borde) */
+    .hero { min-height: 100vh; min-height: 100svh; padding: calc(var(--hdr-h) + 24px) 20px 27px; }
     .hero-media::after {
         background: linear-gradient(to bottom, rgba(35, 44, 30, .10) 0%, rgba(35, 44, 30, .55) 32%, rgba(35, 44, 30, .9) 62%, var(--forest) 100%);
     }
@@ -425,6 +426,11 @@ h3 { font-size: 1.55rem; }
 
     /* La franja de datos sigue al degradé sin corte */
     .facts-inner { padding-top: 4px; }
+}
+
+@media (max-width: 640px) {
+    /* Acá el WhatsApp flotante es más chico y más abajo (centro a 44px del borde) */
+    .hero { padding-bottom: 17px; }
 }
 
 @media (max-width: 380px) {
