@@ -205,13 +205,17 @@ async function record(collection, extra, excluded = isExcludedVisitor) {
 // Historial completo: guarda cada acceso/click (no solo el primero por IP),
 // con el hash de la IP para poder cruzar accesos con clicks.
 // Devuelve el ID del documento creado (o true si no había que registrar nada, false si falló).
-async function log(name, extra, excluded = isExcludedVisitor) {
+// Con `id` se usa ese ID en lugar de uno automático (si ya existía, cuenta como guardado).
+async function log(name, extra, excluded = isExcludedVisitor, id = null) {
   if (SKIP) return true;
   if (await excluded()) return true; // "ok": no hay nada que reintentar
   const ipHash = await getIpHash();
   if (!ipHash) return false;
   try {
-    const ref = await writeWithFallback((data) => addDoc(collection(db, name), data), withVariant({
+    const write = id
+      ? (data) => setDoc(doc(db, name, id), data).then(() => ({ id }))
+      : (data) => addDoc(collection(db, name), data);
+    const ref = await writeWithFallback(write, withVariant({
       ipHash,
       ts: serverTimestamp(),
       day: today(),
@@ -219,6 +223,8 @@ async function log(name, extra, excluded = isExcludedVisitor) {
     }));
     return ref && ref.id ? ref.id : true;
   } catch (e) {
+    // Con ID propio, permission-denied = ese acceso ya estaba guardado (por ejemplo, tras recargar)
+    if (id && e && e.code === 'permission-denied') return id;
     console.warn('[stats]', e);
     return false;
   }
@@ -317,8 +323,17 @@ function linkParams() {
 // La marca 0 indica que el acceso se está midiendo (si no pasa de ahí: menos de 10 s)
 const TIME_MARKS = [0, 10, 30, 60, 120, 300, 600];
 const TIME_KEY = 'lalomada_time';
-let resolveVisitId;
-const visitIdPromise = new Promise((resolve) => { resolveVisitId = resolve; });
+// El ID del acceso se genera acá mismo (no hace falta esperar a que se guarde en visitLog),
+// así el tiempo empieza a registrarse enseguida aunque la persona se vaya en pocos segundos.
+// Recargar en la misma sesión sigue sumando al mismo acceso.
+const visitSession = safeStorage('sessionStorage');
+let visitIdValue = null;
+try { visitIdValue = visitSession && visitSession.getItem('lalomada_visit_id'); } catch (e) {}
+if (!visitIdValue) {
+  visitIdValue = doc(collection(db, 'visitLog')).id;
+  try { if (visitSession) visitSession.setItem('lalomada_visit_id', visitIdValue); } catch (e) {}
+}
+const visitIdPromise = Promise.resolve(visitIdValue);
 
 async function sendTimeMark(sec) {
   const visitId = await visitIdPromise;
@@ -370,13 +385,18 @@ function startTimer() {
     if (saved && typeof saved.sec === 'number' && typeof saved.sent === 'number') st = saved;
   } catch (e) {}
   if (st.sec >= DURATION_MAX) return;
-  const timer = setInterval(() => {
-    if (document.visibilityState !== 'visible') return;
-    st.sec++;
+  const sendMarks = () => {
     while (st.sent < TIME_MARKS.length && st.sec >= TIME_MARKS[st.sent]) {
       sendTimeMark(TIME_MARKS[st.sent]);
       st.sent++;
     }
+  };
+  // La marca 0 sale apenas la página está en pantalla, sin esperar el primer segundo
+  if (document.visibilityState === 'visible') sendMarks();
+  const timer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    st.sec++;
+    sendMarks();
     if (st.sec - durationSent >= durationStep(st.sec)) sendDuration(st.sec);
     try { if (session) session.setItem(TIME_KEY, JSON.stringify(st)); } catch (e) {}
     if (st.sec >= DURATION_MAX) clearInterval(timer);
@@ -388,23 +408,17 @@ function startTimer() {
 
 const referrer = detectSource().slice(0, 100);
 const utm = linkParams();
-if (!SKIP) {
+if (!SKIP && !BOT_UA.test(navigator.userAgent || '')) {
+  getIpHash(); // se pide ya: las marcas de tiempo la necesitan
   startTimer();
   getGeo().then((geo) => {
     record('visits', { referrer, ...geo });
 
     // Un acceso por sesión del navegador: recargar o navegar dentro del sitio no suma otro
-    const session = safeStorage('sessionStorage');
-    if (!session || !session.getItem('lalomada_visitlog_ok')) {
-      log('visitLog', { referrer, ...geo, ...(utm ? { utm } : {}) }).then((res) => {
-        if (res && session) session.setItem('lalomada_visitlog_ok', '1');
-        const visitId = typeof res === 'string' ? res : null;
-        if (visitId && session) session.setItem('lalomada_visit_id', visitId);
-        resolveVisitId(visitId);
+    if (!visitSession || !visitSession.getItem('lalomada_visitlog_ok')) {
+      log('visitLog', { referrer, ...geo, ...(utm ? { utm } : {}) }, isExcludedVisitor, visitIdValue).then((res) => {
+        if (res && visitSession) visitSession.setItem('lalomada_visitlog_ok', '1');
       });
-    } else {
-      // Recarga en la misma sesión: el tiempo sigue sumando al mismo acceso
-      resolveVisitId(session.getItem('lalomada_visit_id'));
     }
   });
 }

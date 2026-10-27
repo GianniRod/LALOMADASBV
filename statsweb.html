@@ -953,7 +953,8 @@
         function timeSummary(list) {
             const secs = list.filter((a) => a.sec !== undefined).map((a) => a.sec).sort((x, y) => x - y);
             const n = secs.length;
-            const durs = list.filter((a) => a.dur !== undefined).map((a) => a.dur);
+            // Solo los accesos con tiempo registrado: los que figuran con "—" no suman al promedio
+            const durs = list.filter((a) => a.sec !== undefined && a.dur !== undefined).map((a) => a.dur);
             return {
                 avg: durs.length ? durs.reduce((x, y) => x + y, 0) / durs.length : undefined,
                 nAvg: durs.length,
