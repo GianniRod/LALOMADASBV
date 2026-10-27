@@ -410,17 +410,15 @@ h3 { font-size: 1.55rem; }
 
 /* ---------- Portada en celular: video a pantalla completa con el texto encima ---------- */
 @media (max-width: 760px) {
-    /* Ocupa toda la pantalla para que los datos no se vean al entrar; el espacio de abajo
-       deja el texto donde estaba (como si la portada midiera 88%) */
-    .hero {
-        min-height: 100vh; min-height: 100svh;
-        padding: calc(var(--hdr-h) + 24px) 20px calc(12vh + 36px);
-        padding-bottom: calc(12svh + 36px);
-    }
+    .hero { min-height: 88vh; min-height: 88svh; padding: calc(var(--hdr-h) + 24px) 20px 36px; }
     .hero-media::after {
         background: linear-gradient(to bottom, rgba(35, 44, 30, .10) 0%, rgba(35, 44, 30, .55) 32%, rgba(35, 44, 30, .9) 62%, var(--forest) 100%);
     }
     .hero-arch video { filter: none; transform: scale(1.03); }
+
+    /* Título arriba, texto y botón abajo, con aire en el medio */
+    .hero-text { flex: 1; display: flex; flex-direction: column; }
+    .hero-lead { margin-top: auto; }
 
     .eyebrow { margin-bottom: 18px; font-size: .68rem; }
     .eyebrow::before { width: 28px; }
